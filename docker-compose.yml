@@ -31,15 +31,6 @@ services:
     env_file:
       - path: .env
         required: false
-    environment:
-      - DEFAULT_DNS_WORDLIST=${DEFAULT_DNS_WORDLIST:-/opt/SecLists/Discovery/DNS/subdomains-top1million-5000.txt}
-      - DEFAULT_VHOST_WORDLIST=${DEFAULT_VHOST_WORDLIST:-/opt/SecLists/Discovery/DNS/subdomains-top1million-5000.txt}
-      - SHODAN_API_KEY=${SHODAN_API_KEY:-}
-      - FINDOMAIN_VIRUSTOTAL_KEY=${FINDOMAIN_VIRUSTOTAL_KEY:-}
-      - FINDOMAIN_SECURITYTRAILS_KEY=${FINDOMAIN_SECURITYTRAILS_KEY:-}
-      - FINDOMAIN_FACEBOOK_TOKEN=${FINDOMAIN_FACEBOOK_TOKEN:-}
-      - FINDOMAIN_SPYSE_TOKEN=${FINDOMAIN_SPYSE_TOKEN:-}
-      - FINDOMAIN_CERTSPOTTER_TOKEN=${FINDOMAIN_CERTSPOTTER_TOKEN:-}
 
     # Allow raw network access for DNS resolution and tool connectivity
     network_mode: host
