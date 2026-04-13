@@ -28,12 +28,17 @@ def _make_report(domain: str = "example.com") -> EnumReport:
 class TestCheckCommand:
     def test_basic_passive_check(self) -> None:
         with patch("subdomainenum.cli.assess", return_value=_make_report()):
-            result = runner.invoke(app, ["check", "example.com"])
+            result = runner.invoke(app, ["check", "example.com", "--mode", "passive"])
         assert result.exit_code == 0
+
+    def test_default_mode_without_wordlist_exits_nonzero(self) -> None:
+        """Default mode is 'all', which requires --wordlist."""
+        result = runner.invoke(app, ["check", "example.com"])
+        assert result.exit_code != 0
 
     def test_json_output(self) -> None:
         with patch("subdomainenum.cli.assess", return_value=_make_report()):
-            result = runner.invoke(app, ["check", "example.com", "--json"])
+            result = runner.invoke(app, ["check", "example.com", "--mode", "passive", "--json"])
         assert result.exit_code == 0
         data = json.loads(result.stdout)
         assert data["domain"] == "example.com"
@@ -61,7 +66,7 @@ class TestCheckCommand:
     def test_output_flag_saves_file(self, tmp_path) -> None:
         out = tmp_path / "report.txt"
         with patch("subdomainenum.cli.assess", return_value=_make_report()):
-            result = runner.invoke(app, ["check", "example.com", "--output", str(out)])
+            result = runner.invoke(app, ["check", "example.com", "--mode", "passive", "--output", str(out)])
         assert result.exit_code == 0
         assert out.exists()
         assert "example.com" in out.read_text()
@@ -69,7 +74,7 @@ class TestCheckCommand:
     def test_json_flag_ignores_output(self, tmp_path) -> None:
         out = tmp_path / "report.txt"
         with patch("subdomainenum.cli.assess", return_value=_make_report()):
-            result = runner.invoke(app, ["check", "example.com", "--json", "--output", str(out)])
+            result = runner.invoke(app, ["check", "example.com", "--mode", "passive", "--json", "--output", str(out)])
         assert result.exit_code == 0
         data = json.loads(result.stdout)
         assert data["domain"] == "example.com"
@@ -78,12 +83,12 @@ class TestCheckCommand:
 
     def test_assess_value_error_exits_nonzero(self) -> None:
         with patch("subdomainenum.cli.assess", side_effect=ValueError("wordlist required")):
-            result = runner.invoke(app, ["check", "example.com"])
+            result = runner.invoke(app, ["check", "example.com", "--mode", "passive"])
         assert result.exit_code != 0
 
     def test_json_output_on_error(self) -> None:
         with patch("subdomainenum.cli.assess", side_effect=RuntimeError("boom")):
-            result = runner.invoke(app, ["check", "example.com", "--json"])
+            result = runner.invoke(app, ["check", "example.com", "--mode", "passive", "--json"])
         assert result.exit_code != 0
         data = json.loads(result.stdout)
         assert "error" in data
@@ -92,7 +97,7 @@ class TestCheckCommand:
 class TestDebugMode:
     def test_debug_flag_exits_zero(self) -> None:
         with patch("subdomainenum.cli.assess", return_value=_make_report()):
-            result = runner.invoke(app, ["check", "example.com", "--debug"])
+            result = runner.invoke(app, ["check", "example.com", "--mode", "passive", "--debug"])
         assert result.exit_code == 0
 
     def test_debug_flag_passes_debug_cb_to_assess(self) -> None:
@@ -106,7 +111,7 @@ class TestDebugMode:
             return _make_report()
 
         with patch("subdomainenum.cli.assess", side_effect=fake_assess):
-            result = runner.invoke(app, ["check", "example.com", "--debug"])
+            result = runner.invoke(app, ["check", "example.com", "--mode", "passive", "--debug"])
         assert result.exit_code == 0
         assert len(captured) == 1
         assert captured[0] is not None  # debug_cb was wired up
@@ -119,14 +124,14 @@ class TestDebugMode:
             return _make_report()
 
         with patch("subdomainenum.cli.assess", side_effect=fake_assess):
-            result = runner.invoke(app, ["check", "example.com"])
+            result = runner.invoke(app, ["check", "example.com", "--mode", "passive"])
         assert result.exit_code == 0
         assert captured[0] is None  # no debug_cb when --debug not passed
 
     def test_debug_and_json_flags_together(self) -> None:
         """--debug + --json should still produce valid JSON on stdout."""
         with patch("subdomainenum.cli.assess", return_value=_make_report()):
-            result = runner.invoke(app, ["check", "example.com", "--debug", "--json"])
+            result = runner.invoke(app, ["check", "example.com", "--mode", "passive", "--debug", "--json"])
         assert result.exit_code == 0
         data = json.loads(result.stdout)
         assert data["domain"] == "example.com"
@@ -134,7 +139,7 @@ class TestDebugMode:
     def test_debug_mode_value_error_exits_nonzero(self) -> None:
         """Cover lines 170-172: ValueError in the debug branch."""
         with patch("subdomainenum.cli.assess", side_effect=ValueError("wordlist required")):
-            result = runner.invoke(app, ["check", "example.com", "--debug"])
+            result = runner.invoke(app, ["check", "example.com", "--mode", "passive", "--debug"])
         assert result.exit_code != 0
 
 
@@ -149,7 +154,7 @@ class TestProgressCb:
             return _make_report()
 
         with patch("subdomainenum.cli.assess", side_effect=fake_assess):
-            result = runner.invoke(app, ["check", "example.com"])
+            result = runner.invoke(app, ["check", "example.com", "--mode", "passive"])
         assert result.exit_code == 0
 
 
@@ -158,7 +163,7 @@ class TestSaveReportFormats:
         """Cover line 270: export_svg branch in _save_report."""
         out = tmp_path / "report.svg"
         with patch("subdomainenum.cli.assess", return_value=_make_report()):
-            result = runner.invoke(app, ["check", "example.com", "--output", str(out)])
+            result = runner.invoke(app, ["check", "example.com", "--mode", "passive", "--output", str(out)])
         assert result.exit_code == 0
         assert out.exists()
 
@@ -166,7 +171,7 @@ class TestSaveReportFormats:
         """Cover line 272: export_html branch in _save_report."""
         out = tmp_path / "report.html"
         with patch("subdomainenum.cli.assess", return_value=_make_report()):
-            result = runner.invoke(app, ["check", "example.com", "--output", str(out)])
+            result = runner.invoke(app, ["check", "example.com", "--mode", "passive", "--output", str(out)])
         assert result.exit_code == 0
         assert out.exists()
 

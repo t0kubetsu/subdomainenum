@@ -131,7 +131,7 @@ class TestEnumReport:
     def test_minimal_construction(self) -> None:
         r = EnumReport(domain="example.com")
         assert r.domain == "example.com"
-        assert r.mode == EnumMode.PASSIVE
+        assert r.mode == EnumMode.ALL
         assert r.subdomains == []
         assert r.vhosts == []
         assert r.sources == []
