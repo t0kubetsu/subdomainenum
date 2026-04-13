@@ -32,7 +32,6 @@ def run_dnsrecon(
         "-D", wordlist,
         "-t", "brt",
         "--lifetime", "3",
-        "-q",
     ]
     try:
         lines = run_tool(cmd, timeout=timeout, line_cb=line_cb, cmd_cb=cmd_cb)

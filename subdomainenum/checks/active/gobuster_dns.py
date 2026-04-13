@@ -30,7 +30,7 @@ def run_gobuster_dns(
     result = SourceResult(name="gobuster")
     cmd = [
         "gobuster", "dns",
-        "-d", domain,
+        "--domain", domain,
         "-w", wordlist,
         "-t", str(threads),
         "-q",
