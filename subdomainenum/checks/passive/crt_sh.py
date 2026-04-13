@@ -82,6 +82,7 @@ def query_crt_sh(
             user=_USER,
             dbname=_DBNAME,
             connect_timeout=_CONNECT_TIMEOUT,
+            sslmode="disable",
         )
         try:
             with conn.cursor() as cur:
