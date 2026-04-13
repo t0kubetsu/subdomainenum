@@ -1,0 +1,25 @@
+services:
+  subdomainenum:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SECLISTS_REF: master
+    image: subdomainenum:latest
+
+    # By default launch an interactive shell so you can run arbitrary checks.
+    # Override via `docker compose run subdomainenum check example.com --json`
+    entrypoint: ["subdomainenum"]
+    command: ["--help"]
+
+    volumes:
+      # Persist JSON reports on the host
+      - ./reports:/reports
+
+    environment:
+      # Default wordlists bundled from SecLists – override with your own
+      - DEFAULT_DNS_WORDLIST=/opt/SecLists/Discovery/DNS/subdomains-top1million-5000.txt
+      - DEFAULT_VHOST_WORDLIST=/opt/SecLists/Discovery/DNS/subdomains-top1million-5000.txt
+
+    # Allow raw network access for DNS resolution and tool connectivity
+    network_mode: host
