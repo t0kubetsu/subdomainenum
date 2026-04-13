@@ -66,12 +66,16 @@ class TestQueryCrtSh:
         assert result.error is not None
         assert result.subdomains == []
 
-    def test_multiline_name_value(self) -> None:
-        """NAME_VALUE column can contain newline-separated DNS names."""
-        conn = _make_conn([("a.example.com\nb.example.com",)])
+    def test_multiple_rows_deduplicated(self) -> None:
+        """Each row is a single FQDN; duplicates across rows are deduplicated."""
+        conn = _make_conn([
+            ("a.example.com",),
+            ("b.example.com",),
+            ("a.example.com",),  # duplicate
+        ])
         with patch("psycopg2.connect", return_value=conn):
             result = query_crt_sh("example.com")
-        assert "a.example.com" in result.subdomains
+        assert result.subdomains.count("a.example.com") == 1
         assert "b.example.com" in result.subdomains
 
     def test_filters_out_of_scope_domains(self) -> None:

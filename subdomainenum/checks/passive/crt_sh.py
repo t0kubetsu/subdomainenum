@@ -19,24 +19,14 @@ _USER = "guest"
 _DBNAME = "certwatch"
 _CONNECT_TIMEOUT = 20  # seconds
 
-# Equivalent of https://crt.sh/?q=<domain>
-# $1 / %s placeholder is the bare domain (e.g. "example.com").
-# NAME_VALUE column contains newline-separated DNS names from the certificate.
+# Simple ILIKE scan against the certificate identities table.
+# Only fetches direct subdomain matches (ILIKE '%.domain') to avoid noise.
+# %s placeholder is '%.domain' (e.g. '%%.example.com' → '%.example.com').
 _QUERY = """
-WITH ci AS (
-    SELECT min(sub.CERTIFICATE_ID) ID,
-           array_agg(DISTINCT sub.NAME_VALUE) NAME_VALUES,
-           count(sub.CERTIFICATE_ID)::bigint RESULT_COUNT
-        FROM (SELECT cai.*
-                  FROM certificate_and_identities cai
-                  WHERE plainto_tsquery('certwatch', %s) @@ identities(cai.CERTIFICATE)
-                      AND cai.NAME_VALUE ILIKE ('%%.' || %s)
-                  LIMIT 10000
-             ) sub
-        GROUP BY sub.CERTIFICATE
-)
-SELECT array_to_string(ci.NAME_VALUES, chr(10)) NAME_VALUE
-    FROM ci;
+SELECT DISTINCT name_value
+    FROM certificate_and_identities
+    WHERE name_value ILIKE %s
+    LIMIT 10000;
 """
 
 _PSQL_CMD_TEMPLATE = (
@@ -85,7 +75,7 @@ def query_crt_sh(
         )
         try:
             with conn.cursor() as cur:
-                cur.execute(_QUERY, (domain, domain))
+                cur.execute(_QUERY, (f"%.{domain}",))
                 rows = cur.fetchall()
         finally:
             conn.close()
@@ -98,13 +88,12 @@ def query_crt_sh(
     for (name_value,) in rows:
         if not name_value:
             continue
-        for name in name_value.split("\n"):
-            name = name.strip().lower()
-            if not name or name.startswith("*"):
-                continue
-            if name == domain or name.endswith(suffix):
-                if name not in seen:
-                    seen.add(name)
-                    result.subdomains.append(name)
+        name = name_value.strip().lower()
+        if not name or name.startswith("*"):
+            continue
+        if name == domain or name.endswith(suffix):
+            if name not in seen:
+                seen.add(name)
+                result.subdomains.append(name)
 
     return result
