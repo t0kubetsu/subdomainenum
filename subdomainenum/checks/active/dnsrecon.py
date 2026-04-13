@@ -7,11 +7,13 @@ from typing import Callable
 from subdomainenum.checks.active.tool_runner import run_tool
 from subdomainenum.models import SourceResult
 
-# Types that require only a domain (no wordlist).
-_PASSIVE_TYPES = "std,srv,axfr,crt,zonewalk,bing,yand"
-
-# Types that require a wordlist via -D.
-_WORDLIST_TYPES = "brt,snoop"
+# All applicable types in one invocation.
+# -D wordlist is always passed; types that don't need it simply ignore it.
+# Excluded:
+#   rvl      — requires -r IP range, not available here
+#   tld      — tests TLD variations, not subdomain discovery
+#   snoop    — requires -n NS_SERVER in addition to -D; not generally available
+_ALL_TYPES = "std,srv,axfr,crt,zonewalk,bing,yand,brt"
 
 
 def run_dnsrecon(
@@ -24,63 +26,40 @@ def run_dnsrecon(
 ) -> SourceResult:
     """Run dnsrecon for *domain* covering all applicable enumeration types.
 
-    Two subprocess invocations are made:
-
-    1. Non-wordlist types (``std,srv,axfr,crt,zonewalk,bing,yand``) — no ``-D``
-       flag required.
-    2. Wordlist-dependent types (``brt,snoop``) — uses *wordlist* via ``-D``.
-
-    Results from both invocations are merged and deduplicated into a single
-    :class:`~subdomainenum.models.SourceResult`.
+    A single subprocess invocation is used with ``-t std,srv,axfr,crt,
+    zonewalk,bing,yand,brt`` and ``-D wordlist``.  Types that do not need a
+    wordlist silently ignore the ``-D`` flag.
 
     Excluded types:
     - ``rvl`` — requires an IP range (``-r``), not applicable here.
     - ``tld`` — tests TLD variations, not subdomain discovery.
+    - ``snoop`` — requires ``-n NS_SERVER`` in addition to ``-D``.
 
     :param domain: Target base domain.
-    :param wordlist: Absolute path to the wordlist file (used for brt/snoop).
-    :param timeout: Maximum seconds to wait *per invocation*.
+    :param wordlist: Absolute path to the wordlist file.
+    :param timeout: Maximum seconds to wait for dnsrecon.
     :param line_cb: Optional callback invoked with each output line (debug mode).
-    :param cmd_cb: Optional callback invoked once per command before launch.
+    :param cmd_cb: Optional callback invoked once with the full command string before launch.
     :rtype: SourceResult
     """
     result = SourceResult(name="dnsrecon")
-    suffix = f".{domain}"
-    all_lines: list[str] = []
-
-    # --- Invocation 1: non-wordlist types ---
-    cmd1 = [
+    cmd = [
         "dnsrecon",
         "-d", domain,
-        "-t", _PASSIVE_TYPES,
+        "-D", wordlist,
+        "-t", _ALL_TYPES,
         "--lifetime", "3",
     ]
     try:
-        lines1 = run_tool(cmd1, timeout=timeout, line_cb=line_cb, cmd_cb=cmd_cb)
-        all_lines.extend(lines1)
+        lines = run_tool(cmd, timeout=timeout, line_cb=line_cb, cmd_cb=cmd_cb)
     except RuntimeError as exc:
         result.available = False
         result.error = str(exc)
         return result
 
-    # --- Invocation 2: wordlist-dependent types ---
-    cmd2 = [
-        "dnsrecon",
-        "-d", domain,
-        "-D", wordlist,
-        "-t", _WORDLIST_TYPES,
-        "--lifetime", "3",
-    ]
-    try:
-        lines2 = run_tool(cmd2, timeout=timeout, line_cb=line_cb, cmd_cb=cmd_cb)
-        all_lines.extend(lines2)
-    except RuntimeError as exc:
-        # Non-fatal: passive types already ran; record the error but keep results.
-        result.error = str(exc)
-
-    # Parse FQDNs from merged output.
     # dnsrecon outputs lines like: "[*] A sub.example.com 1.2.3.4"
-    for line in all_lines:
+    suffix = f".{domain}"
+    for line in lines:
         parts = line.split()
         for part in parts:
             part = part.lower()
