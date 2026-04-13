@@ -177,15 +177,20 @@ class TestRunDnsrecon:
             run_dnsrecon("example.com", wordlist="/tmp/words.txt")
         assert mock.call_count == 1
 
-    def test_command_includes_all_types(self) -> None:
+    def test_command_uses_std_and_brt_types(self) -> None:
         with patch("subdomainenum.checks.active.dnsrecon.run_tool", return_value=[]) as mock:
             run_dnsrecon("example.com", wordlist="/tmp/words.txt")
             cmd = mock.call_args[0][0]
         type_val = cmd[cmd.index("-t") + 1]
-        for t in ("std", "srv", "axfr", "crt", "zonewalk", "bing", "yand", "brt"):
-            assert t in type_val
-        # snoop dropped — requires -n NS_SERVER
-        assert "snoop" not in type_val
+        assert "std" in type_val
+        assert "brt" in type_val
+
+    def test_command_includes_all_boolean_flags(self) -> None:
+        with patch("subdomainenum.checks.active.dnsrecon.run_tool", return_value=[]) as mock:
+            run_dnsrecon("example.com", wordlist="/tmp/words.txt")
+            cmd = mock.call_args[0][0]
+        for flag in ("-a", "-s", "-b", "-y", "-k", "-w", "-z"):
+            assert flag in cmd, f"expected {flag} in command"
 
     def test_wordlist_in_command(self) -> None:
         with patch("subdomainenum.checks.active.dnsrecon.run_tool", return_value=[]) as mock:
@@ -193,6 +198,20 @@ class TestRunDnsrecon:
             cmd = mock.call_args[0][0]
         assert "-D" in cmd
         assert "/tmp/subdomains.txt" in cmd
+
+    def test_shodan_flag_added_when_api_key_set(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("SHODAN_API_KEY", "testkey123")
+        with patch("subdomainenum.checks.active.dnsrecon.run_tool", return_value=[]) as mock:
+            run_dnsrecon("example.com", wordlist="/tmp/w.txt")
+            cmd = mock.call_args[0][0]
+        assert "--shodan" in cmd
+
+    def test_shodan_flag_absent_when_no_api_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("SHODAN_API_KEY", raising=False)
+        with patch("subdomainenum.checks.active.dnsrecon.run_tool", return_value=[]) as mock:
+            run_dnsrecon("example.com", wordlist="/tmp/w.txt")
+            cmd = mock.call_args[0][0]
+        assert "--shodan" not in cmd
 
     def test_tool_missing_sets_available_false(self) -> None:
         with patch(
