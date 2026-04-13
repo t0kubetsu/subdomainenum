@@ -82,10 +82,10 @@ def query_crt_sh(
             user=_USER,
             dbname=_DBNAME,
             connect_timeout=_CONNECT_TIMEOUT,
-            options=f"-c statement_timeout={_STATEMENT_TIMEOUT_MS}",
         )
         try:
             with conn.cursor() as cur:
+                cur.execute("SET statement_timeout = %s", (_STATEMENT_TIMEOUT_MS,))
                 cur.execute(_QUERY, (domain, domain))
                 rows = cur.fetchall()
         finally:
