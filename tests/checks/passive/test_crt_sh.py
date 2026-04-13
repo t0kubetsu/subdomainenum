@@ -95,3 +95,22 @@ class TestQueryCrtSh:
         assert result.error is not None
         assert "JSON" in result.error
         assert result.subdomains == []
+
+    def test_cmd_cb_called_with_url(self) -> None:
+        calls: list[str] = []
+        mock_resp = MagicMock()
+        mock_resp.ok = True
+        mock_resp.json.return_value = []
+        with patch("requests.get", return_value=mock_resp):
+            query_crt_sh("example.com", cmd_cb=calls.append)
+        assert len(calls) == 1
+        assert "crt.sh" in calls[0]
+        assert "example.com" in calls[0]
+
+    def test_cmd_cb_not_called_when_none(self) -> None:
+        mock_resp = MagicMock()
+        mock_resp.ok = True
+        mock_resp.json.return_value = []
+        with patch("requests.get", return_value=mock_resp):
+            result = query_crt_sh("example.com", cmd_cb=None)
+        assert isinstance(result, SourceResult)

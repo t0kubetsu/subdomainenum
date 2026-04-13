@@ -162,6 +162,31 @@ class TestRunPassive:
             )
         assert ("subfinder", "sub.example.com") in debug_calls
 
+    def test_cmd_cb_lambda_invoked(self) -> None:
+        """Cover the lambda body in _cmd_cb by having a mock call cmd_cb."""
+        cmd_calls: list[tuple] = []
+
+        def fake_crt_sh(domain, *, cmd_cb=None, **kwargs):
+            if cmd_cb:
+                cmd_cb("GET https://crt.sh/...")
+            return _make_source()
+
+        src = _make_source()
+        with (
+            patch("subdomainenum.assessor.query_crt_sh", side_effect=fake_crt_sh),
+            patch("subdomainenum.assessor.query_san", return_value=src),
+            patch("subdomainenum.assessor.run_subfinder", return_value=src),
+            patch("subdomainenum.assessor.run_amass", return_value=src),
+            patch("subdomainenum.assessor.run_findomain", return_value=src),
+            patch("subdomainenum.assessor.run_assetfinder", return_value=src),
+        ):
+            _run_passive(
+                "example.com",
+                progress_cb=None,
+                cmd_cb=lambda s, c: cmd_calls.append((s, c)),
+            )
+        assert any(s == "crt.sh" for s, _ in cmd_calls)
+
     def test_source_exception_captured(self) -> None:
         """Cover lines 91-92: exception from a future is caught and stored."""
         src = _make_source()
@@ -240,6 +265,29 @@ class TestRunActive:
                 debug_cb=lambda s, l: debug_calls.append((s, l)),
             )
         assert ("dnsrecon", "output line") in debug_calls
+
+    def test_cmd_cb_lambda_invoked(self) -> None:
+        """Cover the lambda body in _cmd_cb for active sources."""
+        cmd_calls: list[tuple] = []
+
+        def fake_dnsrecon(domain, *, wordlist, timeout=300, cmd_cb=None, **kwargs):
+            if cmd_cb:
+                cmd_cb("dnsrecon -d example.com -w /tmp/w.txt")
+            return _make_source()
+
+        src = _make_source()
+        with (
+            patch("subdomainenum.assessor.run_dnsrecon", side_effect=fake_dnsrecon),
+            patch("subdomainenum.assessor.run_gobuster_dns", return_value=src),
+        ):
+            _run_active(
+                "example.com",
+                wordlist="/tmp/w.txt",
+                url=None,
+                progress_cb=None,
+                cmd_cb=lambda s, c: cmd_calls.append((s, c)),
+            )
+        assert any(s == "dnsrecon" for s, _ in cmd_calls)
 
 
 # ---------------------------------------------------------------------------

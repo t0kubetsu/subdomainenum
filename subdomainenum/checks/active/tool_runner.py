@@ -11,6 +11,7 @@ def run_tool(
     cmd: list[str],
     timeout: int = 120,
     line_cb: Callable[[str], None] | None = None,
+    cmd_cb: Callable[[str], None] | None = None,
 ) -> list[str]:
     """Run *cmd* as a subprocess and return its stdout as a list of non-empty lines.
 
@@ -19,10 +20,15 @@ def run_tool(
         an empty list is returned rather than raising.
     :param line_cb: Optional callback invoked with each non-empty line as it
         arrives from the process's stdout (useful for real-time debug output).
+    :param cmd_cb: Optional callback invoked once with the full command string
+        immediately before the subprocess is launched (useful for showing the
+        command in debug panels).
     :returns: Non-empty, stripped stdout lines.
     :rtype: list[str]
     :raises RuntimeError: When the binary was not found (``FileNotFoundError``).
     """
+    if cmd_cb is not None:
+        cmd_cb(" ".join(cmd))
     try:
         proc = subprocess.Popen(
             cmd,

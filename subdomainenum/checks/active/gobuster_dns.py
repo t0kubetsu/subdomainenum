@@ -15,6 +15,7 @@ def run_gobuster_dns(
     threads: int = 50,
     timeout: int = 300,
     line_cb: Callable[[str], None] | None = None,
+    cmd_cb: Callable[[str], None] | None = None,
 ) -> SourceResult:
     """Run gobuster dns brute-force for *domain*.
 
@@ -23,6 +24,7 @@ def run_gobuster_dns(
     :param threads: Number of concurrent threads (default 50).
     :param timeout: Maximum seconds to wait for gobuster.
     :param line_cb: Optional callback invoked with each output line (for debug mode).
+    :param cmd_cb: Optional callback invoked once with the full command string before launch.
     :rtype: SourceResult
     """
     result = SourceResult(name="gobuster")
@@ -35,7 +37,7 @@ def run_gobuster_dns(
         "--no-color",
     ]
     try:
-        lines = run_tool(cmd, timeout=timeout, line_cb=line_cb)
+        lines = run_tool(cmd, timeout=timeout, line_cb=line_cb, cmd_cb=cmd_cb)
     except RuntimeError as exc:
         result.available = False
         result.error = str(exc)

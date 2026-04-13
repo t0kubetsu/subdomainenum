@@ -91,3 +91,24 @@ class TestRunTool:
         with patch("subprocess.Popen", return_value=_make_popen("x.example.com\n")):
             lines = run_tool(["tool"], timeout=30, line_cb=None)
         assert lines == ["x.example.com"]
+
+    def test_cmd_cb_called_once_before_popen(self) -> None:
+        """cmd_cb must be invoked exactly once with the joined command string."""
+        calls: list[str] = []
+        with patch("subprocess.Popen", return_value=_make_popen("sub.example.com\n")):
+            run_tool(["subfinder", "-d", "example.com"], timeout=30, cmd_cb=calls.append)
+        assert calls == ["subfinder -d example.com"]
+
+    def test_cmd_cb_not_called_when_none(self) -> None:
+        """run_tool must not raise when cmd_cb is None (default path)."""
+        with patch("subprocess.Popen", return_value=_make_popen("sub.example.com\n")):
+            lines = run_tool(["subfinder", "-d", "example.com"], timeout=30, cmd_cb=None)
+        assert lines == ["sub.example.com"]
+
+    def test_cmd_cb_receives_full_command_string(self) -> None:
+        """Verify the exact joined string passed to cmd_cb."""
+        received: list[str] = []
+        cmd = ["gobuster", "dns", "-d", "example.com", "-w", "/tmp/w.txt"]
+        with patch("subprocess.Popen", return_value=_make_popen("")):
+            run_tool(cmd, timeout=30, cmd_cb=received.append)
+        assert received == ["gobuster dns -d example.com -w /tmp/w.txt"]

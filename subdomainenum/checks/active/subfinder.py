@@ -13,18 +13,20 @@ def run_subfinder(
     *,
     timeout: int = 120,
     line_cb: Callable[[str], None] | None = None,
+    cmd_cb: Callable[[str], None] | None = None,
 ) -> SourceResult:
     """Run subfinder for *domain* and return a :class:`~subdomainenum.models.SourceResult`.
 
     :param domain: Target base domain.
     :param timeout: Maximum seconds to wait for subfinder.
     :param line_cb: Optional callback invoked with each output line (for debug mode).
+    :param cmd_cb: Optional callback invoked once with the full command string before launch.
     :rtype: SourceResult
     """
     result = SourceResult(name="subfinder")
     cmd = ["subfinder", "-d", domain, "-silent"]
     try:
-        lines = run_tool(cmd, timeout=timeout, line_cb=line_cb)
+        lines = run_tool(cmd, timeout=timeout, line_cb=line_cb, cmd_cb=cmd_cb)
     except RuntimeError as exc:
         result.available = False
         result.error = str(exc)

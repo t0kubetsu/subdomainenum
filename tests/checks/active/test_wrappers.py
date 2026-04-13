@@ -63,6 +63,12 @@ class TestRunSubfinder:
             result = run_subfinder("example.com")
         assert "a.example.com" in result.subdomains
 
+    def test_cmd_cb_passed_to_run_tool(self) -> None:
+        cb = lambda cmd: None
+        with patch("subdomainenum.checks.active.subfinder.run_tool", return_value=[]) as mock:
+            run_subfinder("example.com", cmd_cb=cb)
+        assert mock.call_args.kwargs.get("cmd_cb") is cb
+
 
 # ---------------------------------------------------------------------------
 # amass
@@ -97,6 +103,12 @@ class TestRunAmass:
             result = run_amass("example.com", passive=True)
         assert result.available is False
 
+    def test_cmd_cb_passed_to_run_tool(self) -> None:
+        cb = lambda cmd: None
+        with patch("subdomainenum.checks.active.amass.run_tool", return_value=[]) as mock:
+            run_amass("example.com", cmd_cb=cb)
+        assert mock.call_args.kwargs.get("cmd_cb") is cb
+
 
 # ---------------------------------------------------------------------------
 # findomain
@@ -118,6 +130,12 @@ class TestRunFindomain:
             result = run_findomain("example.com")
         assert result.available is False
 
+    def test_cmd_cb_passed_to_run_tool(self) -> None:
+        cb = lambda cmd: None
+        with patch("subdomainenum.checks.active.findomain.run_tool", return_value=[]) as mock:
+            run_findomain("example.com", cmd_cb=cb)
+        assert mock.call_args.kwargs.get("cmd_cb") is cb
+
 
 # ---------------------------------------------------------------------------
 # assetfinder
@@ -138,6 +156,12 @@ class TestRunAssetfinder:
         ):
             result = run_assetfinder("example.com")
         assert result.available is False
+
+    def test_cmd_cb_passed_to_run_tool(self) -> None:
+        cb = lambda cmd: None
+        with patch("subdomainenum.checks.active.assetfinder.run_tool", return_value=[]) as mock:
+            run_assetfinder("example.com", cmd_cb=cb)
+        assert mock.call_args.kwargs.get("cmd_cb") is cb
 
 
 # ---------------------------------------------------------------------------
@@ -172,6 +196,12 @@ class TestRunDnsrecon:
             result = run_dnsrecon("example.com", wordlist="/tmp/w.txt")
         assert "sub.example.com" in result.subdomains
 
+    def test_cmd_cb_passed_to_run_tool(self) -> None:
+        cb = lambda cmd: None
+        with patch("subdomainenum.checks.active.dnsrecon.run_tool", return_value=[]) as mock:
+            run_dnsrecon("example.com", wordlist="/tmp/w.txt", cmd_cb=cb)
+        assert mock.call_args.kwargs.get("cmd_cb") is cb
+
 
 # ---------------------------------------------------------------------------
 # gobuster_dns
@@ -204,6 +234,12 @@ class TestRunGobusterDns:
         with patch("subdomainenum.checks.active.gobuster_dns.run_tool", return_value=output):
             result = run_gobuster_dns("example.com", wordlist="/tmp/w.txt")
         assert "sub.example.com" in result.subdomains
+
+    def test_cmd_cb_passed_to_run_tool(self) -> None:
+        cb = lambda cmd: None
+        with patch("subdomainenum.checks.active.gobuster_dns.run_tool", return_value=[]) as mock:
+            run_gobuster_dns("example.com", wordlist="/tmp/w.txt", cmd_cb=cb)
+        assert mock.call_args.kwargs.get("cmd_cb") is cb
 
 
 # ---------------------------------------------------------------------------
@@ -261,3 +297,9 @@ class TestRunWfuzz:
         with patch("subdomainenum.checks.active.wfuzz.run_tool", return_value=output):
             results = run_wfuzz("example.com", url="http://example.com", wordlist="/tmp/w.txt")
         assert len(results) == 1
+
+    def test_cmd_cb_passed_to_run_tool(self) -> None:
+        cb = lambda cmd: None
+        with patch("subdomainenum.checks.active.wfuzz.run_tool", return_value=[]) as mock:
+            run_wfuzz("example.com", url="http://example.com", wordlist="/tmp/w.txt", cmd_cb=cb)
+        assert mock.call_args.kwargs.get("cmd_cb") is cb

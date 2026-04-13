@@ -64,6 +64,18 @@ class TestQuerySan:
         assert "*.example.com" not in result.subdomains
         assert "www.example.com" in result.subdomains
 
+    def test_cmd_cb_called_with_label(self) -> None:
+        calls: list[str] = []
+        with patch("subdomainenum.checks.passive.san._fetch_san", return_value=[]):
+            query_san("example.com", cmd_cb=calls.append)
+        assert len(calls) == 1
+        assert "example.com" in calls[0]
+
+    def test_cmd_cb_not_called_when_none(self) -> None:
+        with patch("subdomainenum.checks.passive.san._fetch_san", return_value=[]):
+            result = query_san("example.com", cmd_cb=None)
+        assert isinstance(result, SourceResult)
+
 
 class TestFetchSan:
     def _make_ctx_and_raw(self, cert: dict):

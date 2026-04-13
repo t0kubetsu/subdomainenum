@@ -25,6 +25,7 @@ def run_wfuzz(
     timeout: int = 300,
     filter_codes: set[int] | None = None,
     line_cb: Callable[[str], None] | None = None,
+    cmd_cb: Callable[[str], None] | None = None,
 ) -> list[VhostResult]:
     """Run wfuzz to fuzz virtual hosts via the Host header.
 
@@ -39,6 +40,7 @@ def run_wfuzz(
     :param filter_codes: HTTP status codes to exclude from results.
         Defaults to ``{404, 400}``.
     :param line_cb: Optional callback invoked with each output line (for debug mode).
+    :param cmd_cb: Optional callback invoked once with the full command string before launch.
     :returns: List of :class:`~subdomainenum.models.VhostResult` with
         non-filtered status codes.
     :rtype: list[VhostResult]
@@ -56,7 +58,7 @@ def run_wfuzz(
         url,
     ]
     try:
-        lines = run_tool(cmd, timeout=timeout, line_cb=line_cb)
+        lines = run_tool(cmd, timeout=timeout, line_cb=line_cb, cmd_cb=cmd_cb)
     except RuntimeError:
         return []
 

@@ -63,21 +63,22 @@ _MAX_DEBUG_LINES = 20
 class _DebugDisplay:
     """Thread-safe Live Rich display that renders each source's output in its own panel.
 
-    Passive sources run concurrently, so ``add_line`` must be safe to call from
-    multiple threads simultaneously.  A :class:`threading.Lock` protects the
-    shared buffers; the :class:`~rich.live.Live` display is updated after each
-    write.
+    Passive sources run concurrently, so ``add_line`` and ``set_command`` must be
+    safe to call from multiple threads simultaneously.  A :class:`threading.Lock`
+    protects the shared buffers; the :class:`~rich.live.Live` display is updated
+    after each write.
 
     Usage::
 
         with _DebugDisplay(console, domain) as display:
-            assess(..., debug_cb=display.add_line)
+            assess(..., debug_cb=display.add_line, cmd_cb=display.set_command)
     """
 
     def __init__(self, console: Console, domain: str) -> None:
         self._domain = domain
         self._lock = Lock()
         self._buffers: dict[str, deque[str]] = defaultdict(lambda: deque(maxlen=_MAX_DEBUG_LINES))
+        self._commands: dict[str, str] = {}
         self._order: list[str] = []
         self._live = Live(
             self._render(),
@@ -105,11 +106,24 @@ class _DebugDisplay:
             self._buffers[source].append(line)
         self._live.update(self._render())
 
+    def set_command(self, source: str, cmd: str) -> None:
+        """Record the command/label for *source* and refresh the live display.
+
+        :param source: Tool/source name (e.g. ``"subfinder"``).
+        :param cmd: Full command string or descriptive label for the operation.
+        """
+        with self._lock:
+            if source not in self._order:
+                self._order.append(source)
+            self._commands[source] = cmd
+        self._live.update(self._render())
+
     def _render(self) -> Group | Panel:
         """Build the current renderable from buffered lines."""
         with self._lock:
             order = list(self._order)
             snapshots = {s: list(self._buffers[s]) for s in order}
+            commands = dict(self._commands)
 
         if not order:
             return Panel(
@@ -122,7 +136,12 @@ class _DebugDisplay:
         for source in order:
             colour = _DEBUG_COLOURS.get(source, "white")
             lines = snapshots[source]
-            content = "\n".join(lines) if lines else "[dim]waiting…[/dim]"
+            cmd = commands.get(source)
+            body_parts: list[str] = []
+            if cmd:
+                body_parts.append(f"[dim]$ {cmd}[/dim]")
+            body_parts.append("\n".join(lines) if lines else "[dim]waiting…[/dim]")
+            content = "\n".join(body_parts)
             panels.append(Panel(
                 content,
                 title=f"[bold {colour}]{source}[/bold {colour}]",
@@ -217,19 +236,33 @@ def check(
         raise typer.Exit(code=1)
 
     if json_output:
-        debug_cb = _DebugDisplay(_err, domain).add_line if debug else None
-        try:
-            report = assess(
-                domain,
-                mode=mode,
-                wordlist=wordlist,
-                url=url,
-                timeout=timeout,
-                debug_cb=debug_cb,
-            )
-        except Exception as exc:
-            _console.print(json.dumps({"error": str(exc)}, indent=2))
-            raise typer.Exit(code=1)
+        if debug:
+            with _DebugDisplay(_err, domain) as display:
+                try:
+                    report = assess(
+                        domain,
+                        mode=mode,
+                        wordlist=wordlist,
+                        url=url,
+                        timeout=timeout,
+                        debug_cb=display.add_line,
+                        cmd_cb=display.set_command,
+                    )
+                except Exception as exc:
+                    _console.print(json.dumps({"error": str(exc)}, indent=2))
+                    raise typer.Exit(code=1)
+        else:
+            try:
+                report = assess(
+                    domain,
+                    mode=mode,
+                    wordlist=wordlist,
+                    url=url,
+                    timeout=timeout,
+                )
+            except Exception as exc:
+                _console.print(json.dumps({"error": str(exc)}, indent=2))
+                raise typer.Exit(code=1)
         _print_json(report)
         return
 
@@ -243,6 +276,7 @@ def check(
                     url=url,
                     timeout=timeout,
                     debug_cb=display.add_line,
+                    cmd_cb=display.set_command,
                 )
             except ValueError as exc:
                 _err.print(f"[red]Error:[/red] {exc}")

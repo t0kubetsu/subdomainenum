@@ -14,6 +14,7 @@ def run_amass(
     passive: bool = True,
     timeout: int = 300,
     line_cb: Callable[[str], None] | None = None,
+    cmd_cb: Callable[[str], None] | None = None,
 ) -> SourceResult:
     """Run amass for *domain* and return a :class:`~subdomainenum.models.SourceResult`.
 
@@ -21,6 +22,7 @@ def run_amass(
     :param passive: When ``True``, passes ``-passive`` to use only passive APIs.
     :param timeout: Maximum seconds to wait for amass (it can be slow).
     :param line_cb: Optional callback invoked with each output line (for debug mode).
+    :param cmd_cb: Optional callback invoked once with the full command string before launch.
     :rtype: SourceResult
     """
     result = SourceResult(name="amass")
@@ -28,7 +30,7 @@ def run_amass(
     if passive:
         cmd.append("-passive")
     try:
-        lines = run_tool(cmd, timeout=timeout, line_cb=line_cb)
+        lines = run_tool(cmd, timeout=timeout, line_cb=line_cb, cmd_cb=cmd_cb)
     except RuntimeError as exc:
         result.available = False
         result.error = str(exc)

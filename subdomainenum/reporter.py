@@ -11,7 +11,7 @@ from rich import box
 from rich.panel import Panel
 from rich.text import Text
 
-from subdomainenum.models import EnumReport, EnumMode, Status
+from subdomainenum.models import EnumReport, Status
 from subdomainenum.verdict import build_verdict
 
 _console = Console()

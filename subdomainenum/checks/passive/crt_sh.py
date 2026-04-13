@@ -5,6 +5,8 @@ This is a zero-dependency native Python source — no external binary required.
 
 from __future__ import annotations
 
+from typing import Callable
+
 import requests
 
 from subdomainenum.models import SourceResult
@@ -13,7 +15,11 @@ _CRT_URL = "https://crt.sh/?q=%.{domain}&output=json"
 _TIMEOUT = 20
 
 
-def query_crt_sh(domain: str) -> SourceResult:
+def query_crt_sh(
+    domain: str,
+    *,
+    cmd_cb: Callable[[str], None] | None = None,
+) -> SourceResult:
     """Query crt.sh for certificates issued for *domain* and return discovered subdomains.
 
     Wildcard entries (``*.example.com``) are skipped.  Multi-value
@@ -21,11 +27,14 @@ def query_crt_sh(domain: str) -> SourceResult:
     end with ``.{domain}`` or equal ``domain`` are kept.
 
     :param domain: Base domain to query (e.g. ``"example.com"``).
+    :param cmd_cb: Optional callback invoked once with a descriptive label for the operation.
     :returns: :class:`~subdomainenum.models.SourceResult` with ``name="crt.sh"``.
     :rtype: SourceResult
     """
     result = SourceResult(name="crt.sh")
     url = f"https://crt.sh/?q=%.{domain}&output=json"
+    if cmd_cb is not None:
+        cmd_cb(f"GET {url}")
     try:
         resp = requests.get(url, timeout=_TIMEOUT, headers={"Accept": "application/json"})
         if not resp.ok:

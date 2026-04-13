@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import socket
 import ssl
+from typing import Callable
 
 from subdomainenum.models import SourceResult
 
@@ -38,15 +39,23 @@ def _fetch_san(domain: str, port: int = 443, timeout: float = _TIMEOUT) -> list[
             return sans
 
 
-def query_san(domain: str, port: int = 443) -> SourceResult:
+def query_san(
+    domain: str,
+    port: int = 443,
+    *,
+    cmd_cb: Callable[[str], None] | None = None,
+) -> SourceResult:
     """Probe *domain*:*port* via TLS and extract DNS SANs from the certificate.
 
     :param domain: Target base domain.
     :param port: TCP port to connect to (default 443).
+    :param cmd_cb: Optional callback invoked once with a descriptive label for the operation.
     :returns: :class:`~subdomainenum.models.SourceResult` with ``name="san"``.
     :rtype: SourceResult
     """
     result = SourceResult(name="san")
+    if cmd_cb is not None:
+        cmd_cb(f"TLS SAN probe: openssl s_client -connect {domain}:{port}")
     suffix = f".{domain}"
     try:
         san_entries = _fetch_san(domain, port=port)

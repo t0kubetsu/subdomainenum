@@ -14,6 +14,7 @@ def run_dnsrecon(
     wordlist: str,
     timeout: int = 300,
     line_cb: Callable[[str], None] | None = None,
+    cmd_cb: Callable[[str], None] | None = None,
 ) -> SourceResult:
     """Run dnsrecon brute-force mode for *domain* using *wordlist*.
 
@@ -21,6 +22,7 @@ def run_dnsrecon(
     :param wordlist: Absolute path to the wordlist file.
     :param timeout: Maximum seconds to wait for dnsrecon.
     :param line_cb: Optional callback invoked with each output line (for debug mode).
+    :param cmd_cb: Optional callback invoked once with the full command string before launch.
     :rtype: SourceResult
     """
     result = SourceResult(name="dnsrecon")
@@ -33,7 +35,7 @@ def run_dnsrecon(
         "-q",
     ]
     try:
-        lines = run_tool(cmd, timeout=timeout, line_cb=line_cb)
+        lines = run_tool(cmd, timeout=timeout, line_cb=line_cb, cmd_cb=cmd_cb)
     except RuntimeError as exc:
         result.available = False
         result.error = str(exc)
