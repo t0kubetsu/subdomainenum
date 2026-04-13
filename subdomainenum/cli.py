@@ -57,21 +57,53 @@ _DEBUG_COLOURS: dict[str, str] = {
     "san": "bright_green",
 }
 
+_STATUS_COLOURS: dict[str, str] = {
+    "PENDING": "dim",
+    "RUNNING": "yellow",
+    "DONE": "green",
+    "FAILED": "red bold",
+}
+
 _MAX_DEBUG_LINES = 20
 
 
-class _DebugDisplay:
-    """Thread-safe Live Rich display that renders each source's output in its own panel.
+class _LiveRenderable:
+    """Proxy renderable that delegates to ``_DebugDisplay._render()`` on every refresh.
 
-    Passive sources run concurrently, so ``add_line`` and ``set_command`` must be
-    safe to call from multiple threads simultaneously.  A :class:`threading.Lock`
-    protects the shared buffers; the :class:`~rich.live.Live` display is updated
-    after each write.
+    Because Rich calls ``__rich_console__`` on every auto-refresh tick, the live
+    display always shows the latest state without any manual ``Live.update()``
+    calls.  This avoids the thread-safety problems that arise when multiple
+    passive-source threads call ``update()`` concurrently.
+    """
+
+    def __init__(self, display: "_DebugDisplay") -> None:
+        self._display = display
+
+    def __rich_console__(self, console: Console, options: object):  # noqa: ANN001
+        yield self._display._render()
+
+
+class _DebugDisplay:
+    """Thread-safe Live debug display: one bordered panel per source.
+
+    Each source has a lifecycle: PENDING → RUNNING → DONE | FAILED.
+    ``set_command`` transitions to RUNNING; ``finish`` transitions to DONE/FAILED.
+    Lines added via ``add_line`` implicitly flip PENDING to RUNNING.
+
+    All public methods are safe to call from multiple threads.  A single
+    :class:`threading.Lock` protects the shared state; the :class:`~rich.live.Live`
+    display auto-refreshes at 10 fps via :class:`_LiveRenderable` — no manual
+    ``update()`` calls are needed.
 
     Usage::
 
         with _DebugDisplay(console, domain) as display:
-            assess(..., debug_cb=display.add_line, cmd_cb=display.set_command)
+            assess(
+                ...,
+                debug_cb=display.add_line,
+                cmd_cb=display.set_command,
+                finish_cb=display.finish,
+            )
     """
 
     def __init__(self, console: Console, domain: str) -> None:
@@ -79,51 +111,73 @@ class _DebugDisplay:
         self._lock = Lock()
         self._buffers: dict[str, deque[str]] = defaultdict(lambda: deque(maxlen=_MAX_DEBUG_LINES))
         self._commands: dict[str, str] = {}
+        self._statuses: dict[str, str] = {}
+        self._errors: dict[str, str | None] = {}
         self._order: list[str] = []
         self._live = Live(
-            self._render(),
+            _LiveRenderable(self),
             console=console,
             refresh_per_second=10,
+            auto_refresh=True,
         )
 
-    def __enter__(self) -> _DebugDisplay:
+    def __enter__(self) -> "_DebugDisplay":
         self._live.__enter__()
         return self
 
     def __exit__(self, *args: object) -> None:
-        self._live.update(self._render())
         self._live.__exit__(*args)
 
+    def _register(self, source: str) -> None:
+        """Ensure *source* is tracked (must be called with ``self._lock`` held)."""
+        if source not in self._order:
+            self._order.append(source)
+            self._statuses[source] = "PENDING"
+
     def add_line(self, source: str, line: str) -> None:
-        """Append *line* from *source* and refresh the live display.
+        """Append *line* from *source* to its panel buffer.
+
+        Implicitly transitions *source* from PENDING to RUNNING on the first call.
 
         :param source: Tool/source name (e.g. ``"subfinder"``).
         :param line: Raw output line emitted by the tool.
         """
         with self._lock:
-            if source not in self._order:
-                self._order.append(source)
+            self._register(source)
+            if self._statuses.get(source) == "PENDING":
+                self._statuses[source] = "RUNNING"
             self._buffers[source].append(line)
-        self._live.update(self._render())
 
     def set_command(self, source: str, cmd: str) -> None:
-        """Record the command/label for *source* and refresh the live display.
+        """Record the command string for *source* and mark it RUNNING.
 
         :param source: Tool/source name (e.g. ``"subfinder"``).
         :param cmd: Full command string or descriptive label for the operation.
         """
         with self._lock:
-            if source not in self._order:
-                self._order.append(source)
+            self._register(source)
             self._commands[source] = cmd
-        self._live.update(self._render())
+            self._statuses[source] = "RUNNING"
+
+    def finish(self, source: str, error: str | None) -> None:
+        """Mark *source* as DONE or FAILED.
+
+        :param source: Tool/source name.
+        :param error: Error message if the source failed; ``None`` on success.
+        """
+        with self._lock:
+            self._register(source)
+            self._errors[source] = error
+            self._statuses[source] = "FAILED" if error else "DONE"
 
     def _render(self) -> Group | Panel:
-        """Build the current renderable from buffered lines."""
+        """Build the current renderable from buffered state (thread-safe snapshot)."""
         with self._lock:
             order = list(self._order)
             snapshots = {s: list(self._buffers[s]) for s in order}
             commands = dict(self._commands)
+            statuses = dict(self._statuses)
+            errors = dict(self._errors)
 
         if not order:
             return Panel(
@@ -135,17 +189,38 @@ class _DebugDisplay:
         panels: list[Panel] = []
         for source in order:
             colour = _DEBUG_COLOURS.get(source, "white")
+            status = statuses.get(source, "PENDING")
+            status_colour = _STATUS_COLOURS.get(status, "white")
             lines = snapshots[source]
             cmd = commands.get(source)
+            error = errors.get(source)
+
+            # Build panel body: command header, then output lines, then any error
             body_parts: list[str] = []
             if cmd:
                 body_parts.append(f"[dim]$ {cmd}[/dim]")
-            body_parts.append("\n".join(lines) if lines else "[dim]waiting…[/dim]")
-            content = "\n".join(body_parts)
+            if lines:
+                body_parts.append("\n".join(lines))
+            elif status == "RUNNING":
+                body_parts.append("[dim]running…[/dim]")
+            elif status == "PENDING":
+                body_parts.append("[dim]waiting…[/dim]")
+            if error:
+                body_parts.append(f"[red]Error: {error}[/red]")
+
+            content = "\n".join(body_parts) if body_parts else "[dim]—[/dim]"
+            title = (
+                f"[bold {colour}]{source}[/bold {colour}]"
+                f"  [{status_colour}]{status}[/{status_colour}]"
+            )
+            border = (
+                colour if status == "RUNNING"
+                else (status_colour.split()[0] if status in ("DONE", "FAILED") else "dim")
+            )
             panels.append(Panel(
                 content,
-                title=f"[bold {colour}]{source}[/bold {colour}]",
-                border_style=colour,
+                title=title,
+                border_style=border,
                 expand=True,
             ))
         return Group(*panels)
@@ -247,6 +322,7 @@ def check(
                         timeout=timeout,
                         debug_cb=display.add_line,
                         cmd_cb=display.set_command,
+                        finish_cb=display.finish,
                     )
                 except Exception as exc:
                     _console.print(json.dumps({"error": str(exc)}, indent=2))
@@ -277,6 +353,7 @@ def check(
                     timeout=timeout,
                     debug_cb=display.add_line,
                     cmd_cb=display.set_command,
+                    finish_cb=display.finish,
                 )
             except ValueError as exc:
                 _err.print(f"[red]Error:[/red] {exc}")

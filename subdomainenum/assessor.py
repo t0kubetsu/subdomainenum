@@ -38,6 +38,7 @@ def _run_passive(
     progress_cb: Callable[[str], None] | None,
     debug_cb: Callable[[str, str], None] | None = None,
     cmd_cb: Callable[[str, str], None] | None = None,
+    finish_cb: Callable[[str, str | None], None] | None = None,
 ) -> list[SourceResult]:
     """Run all passive enumeration sources concurrently.
 
@@ -47,6 +48,8 @@ def _run_passive(
         called as ``debug_cb(source_name, line)``.
     :param cmd_cb: Optional callback for the command/label that runs each source,
         called as ``cmd_cb(source_name, cmd_string)``.
+    :param finish_cb: Optional callback called when a source completes,
+        called as ``finish_cb(source_name, error_or_none)``.
     :returns: List of :class:`~subdomainenum.models.SourceResult` objects.
     """
 
@@ -90,14 +93,27 @@ def _run_passive(
         _cb("Running assetfinder…")
         return run_assetfinder(domain, line_cb=_line_cb("assetfinder"), cmd_cb=_cmd_cb("assetfinder"))
 
-    tasks = [_run_crt, _run_san, _run_subfinder, _run_amass, _run_findomain, _run_assetfinder]
-    with ThreadPoolExecutor(max_workers=len(tasks)) as pool:
-        futures = {pool.submit(t): t.__name__ for t in tasks}
+    source_tasks: dict[str, Callable[[], SourceResult]] = {
+        "crt.sh": _run_crt,
+        "san": _run_san,
+        "subfinder": _run_subfinder,
+        "amass": _run_amass,
+        "findomain": _run_findomain,
+        "assetfinder": _run_assetfinder,
+    }
+    with ThreadPoolExecutor(max_workers=len(source_tasks)) as pool:
+        futures = {pool.submit(fn): name for name, fn in source_tasks.items()}
         for fut in as_completed(futures):
+            source_name = futures[fut]
             try:
-                sources.append(fut.result())
+                result = fut.result()
+                sources.append(result)
+                if finish_cb:
+                    finish_cb(source_name, result.error)
             except Exception as exc:
-                sources.append(SourceResult(name=futures[fut], error=str(exc), available=False))
+                sources.append(SourceResult(name=source_name, error=str(exc), available=False))
+                if finish_cb:
+                    finish_cb(source_name, str(exc))
 
     return sources
 
@@ -109,6 +125,7 @@ def _run_active(
     progress_cb: Callable[[str], None] | None,
     debug_cb: Callable[[str, str], None] | None = None,
     cmd_cb: Callable[[str, str], None] | None = None,
+    finish_cb: Callable[[str, str | None], None] | None = None,
 ) -> tuple[list[SourceResult], list[VhostResult]]:
     """Run all active enumeration sources.
 
@@ -120,6 +137,8 @@ def _run_active(
         called as ``debug_cb(source_name, line)``.
     :param cmd_cb: Optional callback for the command that runs each source,
         called as ``cmd_cb(source_name, cmd_string)``.
+    :param finish_cb: Optional callback called when a source completes,
+        called as ``finish_cb(source_name, error_or_none)``.
     :returns: Tuple of (sources, vhosts).
     """
 
@@ -141,14 +160,22 @@ def _run_active(
     vhosts: list[VhostResult] = []
 
     _cb("Running dnsrecon (brute-force)…")
-    sources.append(run_dnsrecon(domain, wordlist=wordlist, line_cb=_line_cb("dnsrecon"), cmd_cb=_cmd_cb("dnsrecon")))
+    result = run_dnsrecon(domain, wordlist=wordlist, line_cb=_line_cb("dnsrecon"), cmd_cb=_cmd_cb("dnsrecon"))
+    sources.append(result)
+    if finish_cb:
+        finish_cb("dnsrecon", result.error)
 
     _cb("Running gobuster dns…")
-    sources.append(run_gobuster_dns(domain, wordlist=wordlist, line_cb=_line_cb("gobuster"), cmd_cb=_cmd_cb("gobuster")))
+    result = run_gobuster_dns(domain, wordlist=wordlist, line_cb=_line_cb("gobuster"), cmd_cb=_cmd_cb("gobuster"))
+    sources.append(result)
+    if finish_cb:
+        finish_cb("gobuster", result.error)
 
     if url:
         _cb("Running wfuzz (vhost fuzzing)…")
         vhosts = run_wfuzz(domain, url=url, wordlist=wordlist, line_cb=_line_cb("wfuzz"), cmd_cb=_cmd_cb("wfuzz"))
+        if finish_cb:
+            finish_cb("wfuzz", None)
 
     return sources, vhosts
 
@@ -198,6 +225,7 @@ def assess(
     progress_cb: Callable[[str], None] | None = None,
     debug_cb: Callable[[str, str], None] | None = None,
     cmd_cb: Callable[[str, str], None] | None = None,
+    finish_cb: Callable[[str, str | None], None] | None = None,
 ) -> EnumReport:
     """Run subdomain enumeration for *domain* and return an :class:`~subdomainenum.models.EnumReport`.
 
@@ -211,6 +239,8 @@ def assess(
         called as ``debug_cb(source_name, line)`` for each line a tool emits.
     :param cmd_cb: Optional callback for the command/label that launches each source,
         called as ``cmd_cb(source_name, cmd_string)`` once per source.
+    :param finish_cb: Optional callback called when a source completes,
+        called as ``finish_cb(source_name, error_or_none)``.
     :returns: Completed enumeration report.
     :rtype: EnumReport
     :raises ValueError: When *mode* requires a wordlist but none was provided.
@@ -227,11 +257,11 @@ def assess(
 
     if mode in (EnumMode.PASSIVE, EnumMode.ALL):
         _cb("Starting passive enumeration…")
-        all_sources.extend(_run_passive(domain, progress_cb, debug_cb=debug_cb, cmd_cb=cmd_cb))
+        all_sources.extend(_run_passive(domain, progress_cb, debug_cb=debug_cb, cmd_cb=cmd_cb, finish_cb=finish_cb))
 
     if mode in (EnumMode.ACTIVE, EnumMode.ALL):
         _cb("Starting active enumeration…")
-        active_sources, vhosts = _run_active(domain, wordlist=wordlist, url=url, progress_cb=progress_cb, debug_cb=debug_cb, cmd_cb=cmd_cb)  # type: ignore[arg-type]
+        active_sources, vhosts = _run_active(domain, wordlist=wordlist, url=url, progress_cb=progress_cb, debug_cb=debug_cb, cmd_cb=cmd_cb, finish_cb=finish_cb)  # type: ignore[arg-type]
         all_sources.extend(active_sources)
         all_vhosts.extend(vhosts)
 

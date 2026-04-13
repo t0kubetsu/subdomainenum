@@ -203,6 +203,47 @@ class TestRunPassive:
         assert len(error_sources) == 1
         assert "boom" in error_sources[0].error
 
+    def test_finish_cb_called_on_completion(self) -> None:
+        """finish_cb is called once per source with (name, None) on success."""
+        finish_calls: list[tuple] = []
+        src = _make_source("sub.example.com")
+        with (
+            patch("subdomainenum.assessor.query_crt_sh", return_value=src),
+            patch("subdomainenum.assessor.query_san", return_value=src),
+            patch("subdomainenum.assessor.run_subfinder", return_value=src),
+            patch("subdomainenum.assessor.run_amass", return_value=src),
+            patch("subdomainenum.assessor.run_findomain", return_value=src),
+            patch("subdomainenum.assessor.run_assetfinder", return_value=src),
+        ):
+            _run_passive(
+                "example.com",
+                progress_cb=None,
+                finish_cb=lambda name, err: finish_calls.append((name, err)),
+            )
+        assert len(finish_calls) == 6
+        assert all(err is None for _, err in finish_calls)
+
+    def test_finish_cb_called_on_error(self) -> None:
+        """finish_cb is called with (name, error_str) when a source raises."""
+        finish_calls: list[tuple] = []
+        src = _make_source()
+        with (
+            patch("subdomainenum.assessor.query_crt_sh", side_effect=RuntimeError("network error")),
+            patch("subdomainenum.assessor.query_san", return_value=src),
+            patch("subdomainenum.assessor.run_subfinder", return_value=src),
+            patch("subdomainenum.assessor.run_amass", return_value=src),
+            patch("subdomainenum.assessor.run_findomain", return_value=src),
+            patch("subdomainenum.assessor.run_assetfinder", return_value=src),
+        ):
+            _run_passive(
+                "example.com",
+                progress_cb=None,
+                finish_cb=lambda name, err: finish_calls.append((name, err)),
+            )
+        error_calls = [(n, e) for n, e in finish_calls if e is not None]
+        assert len(error_calls) == 1
+        assert "network error" in error_calls[0][1]
+
 
 # ---------------------------------------------------------------------------
 # _run_active
@@ -288,6 +329,45 @@ class TestRunActive:
                 cmd_cb=lambda s, c: cmd_calls.append((s, c)),
             )
         assert any(s == "dnsrecon" for s, _ in cmd_calls)
+
+    def test_finish_cb_called(self) -> None:
+        """finish_cb is called for each active source with (name, error_or_none)."""
+        finish_calls: list[tuple] = []
+        src = _make_source()
+        with (
+            patch("subdomainenum.assessor.run_dnsrecon", return_value=src),
+            patch("subdomainenum.assessor.run_gobuster_dns", return_value=src),
+        ):
+            _run_active(
+                "example.com",
+                wordlist="/tmp/w.txt",
+                url=None,
+                progress_cb=None,
+                finish_cb=lambda name, err: finish_calls.append((name, err)),
+            )
+        names = [n for n, _ in finish_calls]
+        assert "dnsrecon" in names
+        assert "gobuster" in names
+        assert all(err is None for _, err in finish_calls)
+
+    def test_finish_cb_called_for_wfuzz(self) -> None:
+        """finish_cb is called for wfuzz when url is provided."""
+        finish_calls: list[tuple] = []
+        src = _make_source()
+        with (
+            patch("subdomainenum.assessor.run_dnsrecon", return_value=src),
+            patch("subdomainenum.assessor.run_gobuster_dns", return_value=src),
+            patch("subdomainenum.assessor.run_wfuzz", return_value=[]),
+        ):
+            _run_active(
+                "example.com",
+                wordlist="/tmp/w.txt",
+                url="http://example.com",
+                progress_cb=None,
+                finish_cb=lambda name, err: finish_calls.append((name, err)),
+            )
+        names = [n for n, _ in finish_calls]
+        assert "wfuzz" in names
 
 
 # ---------------------------------------------------------------------------
