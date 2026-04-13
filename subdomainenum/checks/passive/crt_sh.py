@@ -18,7 +18,6 @@ _PORT = 5432
 _USER = "guest"
 _DBNAME = "certwatch"
 _CONNECT_TIMEOUT = 20  # seconds
-_STATEMENT_TIMEOUT_MS = 20_000  # milliseconds
 
 # Equivalent of https://crt.sh/?q=<domain>
 # $1 / %s placeholder is the bare domain (e.g. "example.com").
@@ -86,7 +85,6 @@ def query_crt_sh(
         )
         try:
             with conn.cursor() as cur:
-                cur.execute("SET statement_timeout = %s", (_STATEMENT_TIMEOUT_MS,))
                 cur.execute(_QUERY, (domain, domain))
                 rows = cur.fetchall()
         finally:
