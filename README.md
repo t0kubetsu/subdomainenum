@@ -13,8 +13,8 @@ $ subdomainenum check example.com
 ```
 
 ![Python](https://img.shields.io/badge/python-%3E%3D3.11-blue)
-![Tests](https://img.shields.io/badge/tests-163%20passing-brightgreen)
-![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen)
+![Tests](https://img.shields.io/badge/tests-164%20passing-brightgreen)
+![Coverage](https://img.shields.io/badge/coverage-98%25-brightgreen)
 ![License](https://img.shields.io/badge/license-GPLv3-lightgrey)
 
 ---
@@ -38,7 +38,7 @@ $ subdomainenum check example.com
 
 | Source / Mode         | Type    | What it does                                                                         |
 | --------------------- | ------- | ------------------------------------------------------------------------------------ |
-| **crt.sh**            | Passive | Queries the Certificate Transparency log API for `%.domain`                          |
+| **crt.sh**            | Passive | Queries the Certificate Transparency log via direct PostgreSQL connection to `crt.sh:5432` |
 | **TLS SAN**           | Passive | Connects to port 443, extracts DNS names from the certificate's Subject Alt Names    |
 | **subfinder**         | Passive | Runs `subfinder -d domain -silent -passive`                                          |
 | **amass**             | Passive | Runs `amass enum -d domain -silent -passive`                                         |
@@ -59,7 +59,7 @@ Passive and active sources can be run independently or combined (`--mode all`).
 - [`dnspython`](https://www.dnspython.org/) ≥ 2.6
 - [`rich`](https://github.com/Textualize/rich) ≥ 13.7
 - [`typer`](https://typer.tiangolo.com/) ≥ 0.12
-- [`requests`](https://docs.python-requests.org/) ≥ 2.31
+- [`psycopg2-binary`](https://pypi.org/project/psycopg2-binary/) ≥ 2.9
 - [`cryptography`](https://cryptography.io/) ≥ 42
 
 External tools are optional — absent tools are silently skipped. Run
@@ -337,7 +337,7 @@ pytest tests/test_assessor.py -v
 pytest tests/test_cli.py::TestCheckCommand -v
 ```
 
-The test suite has **163 tests** and achieves **98% coverage** across all modules.
+The test suite has **164 tests** and achieves **98% coverage** across all modules.
 
 All DNS I/O (`dns.resolver.Resolver.resolve`), HTTP requests (`requests.get`), TLS
 sockets, and subprocess calls are mocked at the boundary — no test touches a real

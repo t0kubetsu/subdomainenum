@@ -1,18 +1,49 @@
-"""Query the crt.sh Certificate Transparency log for subdomains.
+"""Query the crt.sh Certificate Transparency database for subdomains.
 
-This is a zero-dependency native Python source — no external binary required.
+This source connects directly to the crt.sh PostgreSQL replica
+(``crt.sh:5432``, database ``certwatch``, user ``guest``) instead of the
+HTTP API, which is more reliable and avoids HTML rate-limiting.
 """
 
 from __future__ import annotations
 
 from typing import Callable
 
-import requests
+import psycopg2
 
 from subdomainenum.models import SourceResult
 
-_CRT_URL = "https://crt.sh/?q=%.{domain}&output=json"
-_TIMEOUT = 20
+_HOST = "crt.sh"
+_PORT = 5432
+_USER = "guest"
+_DBNAME = "certwatch"
+_CONNECT_TIMEOUT = 20  # seconds
+_STATEMENT_TIMEOUT_MS = 20_000  # milliseconds
+
+# Equivalent of https://crt.sh/?q=<domain>
+# $1 / %s placeholder is the bare domain (e.g. "example.com").
+# NAME_VALUE column contains newline-separated DNS names from the certificate.
+_QUERY = """
+WITH ci AS (
+    SELECT min(sub.CERTIFICATE_ID) ID,
+           array_agg(DISTINCT sub.NAME_VALUE) NAME_VALUES,
+           count(sub.CERTIFICATE_ID)::bigint RESULT_COUNT
+        FROM (SELECT cai.*
+                  FROM certificate_and_identities cai
+                  WHERE plainto_tsquery('certwatch', %s) @@ identities(cai.CERTIFICATE)
+                      AND cai.NAME_VALUE ILIKE ('%%.' || %s)
+                  LIMIT 10000
+             ) sub
+        GROUP BY sub.CERTIFICATE
+)
+SELECT array_to_string(ci.NAME_VALUES, chr(10)) NAME_VALUE
+    FROM ci;
+"""
+
+_PSQL_CMD_TEMPLATE = (
+    "psql -h {host} -p {port} -U {user} {dbname} "
+    "-c \"SELECT NAME_VALUE FROM certificate_and_identities WHERE NAME_VALUE ILIKE '%.{domain}' LIMIT 10000\""
+)
 
 
 def query_crt_sh(
@@ -20,39 +51,55 @@ def query_crt_sh(
     *,
     cmd_cb: Callable[[str], None] | None = None,
 ) -> SourceResult:
-    """Query crt.sh for certificates issued for *domain* and return discovered subdomains.
+    """Query the crt.sh PostgreSQL replica for certificates issued for *domain*.
 
     Wildcard entries (``*.example.com``) are skipped.  Multi-value
-    ``name_value`` fields (newline-separated) are split.  Only entries that
+    ``NAME_VALUE`` fields (newline-separated) are split.  Only entries that
     end with ``.{domain}`` or equal ``domain`` are kept.
 
     :param domain: Base domain to query (e.g. ``"example.com"``).
-    :param cmd_cb: Optional callback invoked once with a descriptive label for the operation.
+    :param cmd_cb: Optional callback invoked once with a descriptive psql command label.
     :returns: :class:`~subdomainenum.models.SourceResult` with ``name="crt.sh"``.
     :rtype: SourceResult
     """
     result = SourceResult(name="crt.sh")
-    url = f"https://crt.sh/?q=%.{domain}&output=json"
+
     if cmd_cb is not None:
-        cmd_cb(f"GET {url}")
+        cmd_cb(
+            _PSQL_CMD_TEMPLATE.format(
+                host=_HOST,
+                port=_PORT,
+                user=_USER,
+                dbname=_DBNAME,
+                domain=domain,
+            )
+        )
+
     try:
-        resp = requests.get(url, timeout=_TIMEOUT, headers={"Accept": "application/json"})
-        if not resp.ok:
-            result.error = f"crt.sh returned HTTP {resp.status_code}"
-            return result
-        data = resp.json()
-    except requests.RequestException as exc:
+        conn = psycopg2.connect(
+            host=_HOST,
+            port=_PORT,
+            user=_USER,
+            dbname=_DBNAME,
+            connect_timeout=_CONNECT_TIMEOUT,
+            options=f"-c statement_timeout={_STATEMENT_TIMEOUT_MS}",
+        )
+        try:
+            with conn.cursor() as cur:
+                cur.execute(_QUERY, (domain, domain))
+                rows = cur.fetchall()
+        finally:
+            conn.close()
+    except Exception as exc:
         result.error = str(exc)
-        return result
-    except ValueError as exc:
-        result.error = f"JSON parse error: {exc}"
         return result
 
     seen: set[str] = set()
     suffix = f".{domain}"
-    for entry in data:
-        raw = entry.get("name_value", "")
-        for name in raw.split("\n"):
+    for (name_value,) in rows:
+        if not name_value:
+            continue
+        for name in name_value.split("\n"):
             name = name.strip().lower()
             if not name or name.startswith("*"):
                 continue
