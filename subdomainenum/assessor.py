@@ -152,6 +152,12 @@ def _run_active(
     sources: list[SourceResult] = []
     vhosts: list[VhostResult] = []
 
+    _cb("Running amass (active)…")
+    result = run_amass(domain, mode=EnumMode.ACTIVE, line_cb=_line_cb("amass"), cmd_cb=_cmd_cb("amass"))
+    sources.append(result)
+    if finish_cb:
+        finish_cb("amass", result.error)
+
     _cb("Running dnsrecon (active)…")
     result = run_dnsrecon(domain, mode=EnumMode.ACTIVE, wordlist=wordlist, line_cb=_line_cb("dnsrecon"), cmd_cb=_cmd_cb("dnsrecon"))
     sources.append(result)

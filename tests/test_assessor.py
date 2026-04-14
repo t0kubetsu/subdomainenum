@@ -276,19 +276,21 @@ class TestRunActive:
     def test_returns_sources_without_url(self) -> None:
         src = _make_source()
         with (
+            patch("subdomainenum.assessor.run_amass", return_value=src),
             patch("subdomainenum.assessor.run_dnsrecon", return_value=src),
             patch("subdomainenum.assessor.run_gobuster_dns", return_value=src),
             patch("subdomainenum.assessor.run_ffuf") as mock_ffuf,
         ):
             sources, vhosts = _run_active("example.com", wordlist="/tmp/w.txt", url=None, progress_cb=None)
         mock_ffuf.assert_not_called()
-        assert len(sources) == 3
+        assert len(sources) == 4
         ffuf_src = next(s for s in sources if s.name == "ffuf")
         assert ffuf_src.available is False
 
     def test_runs_ffuf_when_url_provided(self) -> None:
         src = _make_source()
         with (
+            patch("subdomainenum.assessor.run_amass", return_value=src),
             patch("subdomainenum.assessor.run_dnsrecon", return_value=src),
             patch("subdomainenum.assessor.run_gobuster_dns", return_value=src),
             patch("subdomainenum.assessor.run_ffuf", return_value=[]) as mock_ffuf,
@@ -302,6 +304,7 @@ class TestRunActive:
         calls: list[str] = []
         src = _make_source()
         with (
+            patch("subdomainenum.assessor.run_amass", return_value=src),
             patch("subdomainenum.assessor.run_dnsrecon", return_value=src),
             patch("subdomainenum.assessor.run_gobuster_dns", return_value=src),
         ):
@@ -319,6 +322,7 @@ class TestRunActive:
 
         src = _make_source()
         with (
+            patch("subdomainenum.assessor.run_amass", return_value=src),
             patch("subdomainenum.assessor.run_dnsrecon", side_effect=fake_dnsrecon),
             patch("subdomainenum.assessor.run_gobuster_dns", return_value=src),
         ):
@@ -342,6 +346,7 @@ class TestRunActive:
 
         src = _make_source()
         with (
+            patch("subdomainenum.assessor.run_amass", return_value=src),
             patch("subdomainenum.assessor.run_dnsrecon", side_effect=fake_dnsrecon),
             patch("subdomainenum.assessor.run_gobuster_dns", return_value=src),
         ):
@@ -359,6 +364,7 @@ class TestRunActive:
         finish_calls: list[tuple] = []
         src = _make_source()
         with (
+            patch("subdomainenum.assessor.run_amass", return_value=src),
             patch("subdomainenum.assessor.run_dnsrecon", return_value=src),
             patch("subdomainenum.assessor.run_gobuster_dns", return_value=src),
         ):
@@ -370,6 +376,7 @@ class TestRunActive:
                 finish_cb=lambda name, err: finish_calls.append((name, err)),
             )
         names = [n for n, _ in finish_calls]
+        assert "amass" in names
         assert "dnsrecon" in names
         assert "gobuster" in names
         assert "ffuf" in names
@@ -381,6 +388,7 @@ class TestRunActive:
         finish_calls: list[tuple] = []
         src = _make_source()
         with (
+            patch("subdomainenum.assessor.run_amass", return_value=src),
             patch("subdomainenum.assessor.run_dnsrecon", return_value=src),
             patch("subdomainenum.assessor.run_gobuster_dns", return_value=src),
             patch("subdomainenum.assessor.run_ffuf", return_value=[]),
@@ -394,6 +402,18 @@ class TestRunActive:
             )
         names = [n for n, _ in finish_calls]
         assert "ffuf" in names
+
+    def test_amass_called_with_active_mode(self) -> None:
+        """run_amass must be invoked with mode=EnumMode.ACTIVE in _run_active."""
+        from subdomainenum.models import EnumMode
+        src = _make_source()
+        with (
+            patch("subdomainenum.assessor.run_amass", return_value=src) as mock_amass,
+            patch("subdomainenum.assessor.run_dnsrecon", return_value=src),
+            patch("subdomainenum.assessor.run_gobuster_dns", return_value=src),
+        ):
+            _run_active("example.com", wordlist="/tmp/w.txt", url=None, progress_cb=None)
+        assert mock_amass.call_args.kwargs.get("mode") == EnumMode.ACTIVE
 
 
 # ---------------------------------------------------------------------------

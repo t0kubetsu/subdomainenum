@@ -6,7 +6,7 @@ import re
 from typing import Callable
 
 from subdomainenum.tools.tool_runner import run_tool
-from subdomainenum.models import SourceResult
+from subdomainenum.models import EnumMode, SourceResult
 
 # amass v4 outputs relationship lines: "<entity> (<type>) --> <relation> --> <entity> (<type>)"
 _AMASS_FQDN_RE = re.compile(r"^(\S+)\s+\(FQDN\)\s+-->")
@@ -46,6 +46,7 @@ def _parse_amass_output(lines: list[str], domain: str) -> list[str]:
 def run_amass(
     domain: str,
     *,
+    mode: EnumMode = EnumMode.PASSIVE,
     timeout: int = 300,
     line_cb: Callable[[str], None] | None = None,
     cmd_cb: Callable[[str], None] | None = None,
@@ -53,6 +54,8 @@ def run_amass(
     """Run amass for *domain* and return a :class:`~subdomainenum.models.SourceResult`.
 
     :param domain: Target base domain.
+    :param mode: Enumeration mode.  When ``active`` or ``all``, ``-active`` is
+        appended to enable zone transfers and certificate name grabs.
     :param timeout: Maximum seconds to wait for amass (it can be slow).
     :param line_cb: Optional callback invoked with each output line (for debug mode).
     :param cmd_cb: Optional callback invoked once with the full command string before launch.
@@ -60,8 +63,10 @@ def run_amass(
     """
     result = SourceResult(name="amass")
     cmd = ["amass", "enum", "-d", domain]
+    if mode in (EnumMode.ACTIVE, EnumMode.ALL):
+        cmd.append("-active")
     try:
-        lines = run_tool(cmd, timeout=timeout, line_cb=line_cb, cmd_cb=cmd_cb)
+        lines = run_tool(cmd, timeout=timeout, line_cb=line_cb, cmd_cb=cmd_cb, ignore_returncode=True)
     except RuntimeError as exc:
         result.available = False
         result.error = str(exc)

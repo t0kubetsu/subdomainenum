@@ -7,6 +7,7 @@ import json
 from unittest.mock import MagicMock, mock_open, patch
 
 
+from subdomainenum.models import EnumMode
 from subdomainenum.tools.amass import _parse_amass_output, run_amass
 from subdomainenum.tools.assetfinder import run_assetfinder
 from subdomainenum.tools.dnsrecon import run_dnsrecon
@@ -173,6 +174,30 @@ class TestRunAmass:
         with patch("subdomainenum.tools.amass.run_tool", return_value=[]) as mock:
             run_amass("example.com", cmd_cb=cb)
         assert mock.call_args.kwargs.get("cmd_cb") is cb
+
+    def test_ignore_returncode_is_true(self) -> None:
+        """amass exits non-zero on partial failures; results must still be parsed."""
+        with patch("subdomainenum.tools.amass.run_tool", return_value=[]) as mock:
+            run_amass("example.com")
+        assert mock.call_args.kwargs.get("ignore_returncode") is True
+
+    def test_no_active_flag_in_passive_mode(self) -> None:
+        with patch("subdomainenum.tools.amass.run_tool", return_value=[]) as mock:
+            run_amass("example.com", mode=EnumMode.PASSIVE)
+            cmd = mock.call_args[0][0]
+        assert "-active" not in cmd
+
+    def test_active_flag_in_active_mode(self) -> None:
+        with patch("subdomainenum.tools.amass.run_tool", return_value=[]) as mock:
+            run_amass("example.com", mode=EnumMode.ACTIVE)
+            cmd = mock.call_args[0][0]
+        assert "-active" in cmd
+
+    def test_active_flag_in_all_mode(self) -> None:
+        with patch("subdomainenum.tools.amass.run_tool", return_value=[]) as mock:
+            run_amass("example.com", mode=EnumMode.ALL)
+            cmd = mock.call_args[0][0]
+        assert "-active" in cmd
 
 
 # ---------------------------------------------------------------------------
