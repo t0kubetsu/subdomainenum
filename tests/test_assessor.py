@@ -41,6 +41,7 @@ class TestAssess:
             patch("subdomainenum.assessor._run_passive", return_value=[]) as mock_passive,
             patch("subdomainenum.assessor._run_active", return_value=([], [])) as mock_active,
             patch("subdomainenum.assessor._resolve_all", return_value=[]),
+            patch("subdomainenum.assessor.resolve_ips", return_value=[]),
         ):
             assess("example.com", mode=EnumMode.ACTIVE, wordlist="/tmp/w.txt")
         mock_passive.assert_not_called()
@@ -51,10 +52,48 @@ class TestAssess:
             patch("subdomainenum.assessor._run_passive", return_value=[]) as mock_passive,
             patch("subdomainenum.assessor._run_active", return_value=([], [])) as mock_active,
             patch("subdomainenum.assessor._resolve_all", return_value=[]),
+            patch("subdomainenum.assessor.resolve_ips", return_value=[]),
         ):
             assess("example.com", mode=EnumMode.ALL, wordlist="/tmp/w.txt")
         mock_passive.assert_called_once()
         mock_active.assert_called_once()
+
+    def test_auto_derives_url_from_resolved_ip(self) -> None:
+        """When url is None and domain resolves, wfuzz URL is derived from first IP."""
+        with (
+            patch("subdomainenum.assessor._run_passive", return_value=[]),
+            patch("subdomainenum.assessor._run_active", return_value=([], [])) as mock_active,
+            patch("subdomainenum.assessor._resolve_all", return_value=[]),
+            patch("subdomainenum.assessor.resolve_ips", return_value=["1.2.3.4"]),
+        ):
+            assess("example.com", mode=EnumMode.ACTIVE, wordlist="/tmp/w.txt", url=None)
+        _, kwargs = mock_active.call_args
+        assert kwargs["url"] == "http://1.2.3.4"
+
+    def test_skips_wfuzz_when_domain_does_not_resolve(self) -> None:
+        """When url is None and domain resolves to no IPs, url stays None."""
+        with (
+            patch("subdomainenum.assessor._run_passive", return_value=[]),
+            patch("subdomainenum.assessor._run_active", return_value=([], [])) as mock_active,
+            patch("subdomainenum.assessor._resolve_all", return_value=[]),
+            patch("subdomainenum.assessor.resolve_ips", return_value=[]),
+        ):
+            assess("example.com", mode=EnumMode.ACTIVE, wordlist="/tmp/w.txt", url=None)
+        _, kwargs = mock_active.call_args
+        assert kwargs["url"] is None
+
+    def test_explicit_url_not_overridden(self) -> None:
+        """When url is explicitly provided, resolve_ips is not called."""
+        with (
+            patch("subdomainenum.assessor._run_passive", return_value=[]),
+            patch("subdomainenum.assessor._run_active", return_value=([], [])) as mock_active,
+            patch("subdomainenum.assessor._resolve_all", return_value=[]),
+            patch("subdomainenum.assessor.resolve_ips") as mock_resolve,
+        ):
+            assess("example.com", mode=EnumMode.ACTIVE, wordlist="/tmp/w.txt", url="http://10.0.0.1")
+        mock_resolve.assert_not_called()
+        _, kwargs = mock_active.call_args
+        assert kwargs["url"] == "http://10.0.0.1"
 
     def test_progress_cb_called(self) -> None:
         calls: list[str] = []
@@ -107,9 +146,10 @@ class TestRunPassive:
             patch("subdomainenum.assessor.run_amass", return_value=src),
             patch("subdomainenum.assessor.run_findomain", return_value=src),
             patch("subdomainenum.assessor.run_assetfinder", return_value=src),
+            patch("subdomainenum.assessor.run_dnsrecon", return_value=src),
         ):
             results = _run_passive("example.com", progress_cb=None)
-        assert len(results) == 4
+        assert len(results) == 5
 
     def test_progress_cb_called(self) -> None:
         calls: list[str] = []
@@ -119,6 +159,7 @@ class TestRunPassive:
             patch("subdomainenum.assessor.run_amass", return_value=src),
             patch("subdomainenum.assessor.run_findomain", return_value=src),
             patch("subdomainenum.assessor.run_assetfinder", return_value=src),
+            patch("subdomainenum.assessor.run_dnsrecon", return_value=src),
         ):
             _run_passive("example.com", progress_cb=calls.append)
         assert len(calls) > 0
@@ -138,6 +179,7 @@ class TestRunPassive:
             patch("subdomainenum.assessor.run_amass", return_value=src),
             patch("subdomainenum.assessor.run_findomain", return_value=src),
             patch("subdomainenum.assessor.run_assetfinder", return_value=src),
+            patch("subdomainenum.assessor.run_dnsrecon", return_value=src),
         ):
             _run_passive(
                 "example.com",
@@ -161,6 +203,7 @@ class TestRunPassive:
             patch("subdomainenum.assessor.run_amass", return_value=src),
             patch("subdomainenum.assessor.run_findomain", return_value=src),
             patch("subdomainenum.assessor.run_assetfinder", return_value=src),
+            patch("subdomainenum.assessor.run_dnsrecon", return_value=src),
         ):
             _run_passive(
                 "example.com",
@@ -177,6 +220,7 @@ class TestRunPassive:
             patch("subdomainenum.assessor.run_amass", return_value=src),
             patch("subdomainenum.assessor.run_findomain", return_value=src),
             patch("subdomainenum.assessor.run_assetfinder", return_value=src),
+            patch("subdomainenum.assessor.run_dnsrecon", return_value=src),
         ):
             results = _run_passive("example.com", progress_cb=None)
         error_sources = [r for r in results if r.available is False]
@@ -192,13 +236,14 @@ class TestRunPassive:
             patch("subdomainenum.assessor.run_amass", return_value=src),
             patch("subdomainenum.assessor.run_findomain", return_value=src),
             patch("subdomainenum.assessor.run_assetfinder", return_value=src),
+            patch("subdomainenum.assessor.run_dnsrecon", return_value=src),
         ):
             _run_passive(
                 "example.com",
                 progress_cb=None,
                 finish_cb=lambda name, err: finish_calls.append((name, err)),
             )
-        assert len(finish_calls) == 4
+        assert len(finish_calls) == 5
         assert all(err is None for _, err in finish_calls)
 
     def test_finish_cb_called_on_error(self) -> None:
@@ -210,6 +255,7 @@ class TestRunPassive:
             patch("subdomainenum.assessor.run_amass", return_value=src),
             patch("subdomainenum.assessor.run_findomain", return_value=src),
             patch("subdomainenum.assessor.run_assetfinder", return_value=src),
+            patch("subdomainenum.assessor.run_dnsrecon", return_value=src),
         ):
             _run_passive(
                 "example.com",

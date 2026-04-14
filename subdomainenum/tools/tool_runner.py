@@ -12,28 +12,37 @@ def run_tool(
     timeout: int = 120,
     line_cb: Callable[[str], None] | None = None,
     cmd_cb: Callable[[str], None] | None = None,
+    capture_stderr: bool = False,
+    ignore_returncode: bool = False,
 ) -> list[str]:
-    """Run *cmd* as a subprocess and return its stdout as a list of non-empty lines.
+    """Run *cmd* as a subprocess and return its output as a list of non-empty lines.
 
     :param cmd: Command and arguments to execute.
     :param timeout: Maximum seconds to wait for the process.  On timeout,
         an empty list is returned rather than raising.
     :param line_cb: Optional callback invoked with each non-empty line as it
-        arrives from the process's stdout (useful for real-time debug output).
+        arrives from the process's output (useful for real-time debug output).
     :param cmd_cb: Optional callback invoked once with the full command string
         immediately before the subprocess is launched (useful for showing the
         command in debug panels).
-    :returns: Non-empty, stripped stdout lines.
+    :param capture_stderr: When ``True``, merge stderr into stdout so that tools
+        writing output via the logging module (e.g. dnsrecon) are captured too.
+    :param ignore_returncode: When ``True``, return collected lines even if the
+        process exits with a non-zero code (useful for tools that report partial
+        failures via exit code but still emit valid results, e.g. dnsrecon when
+        AXFR is refused).
+    :returns: Non-empty, stripped output lines.
     :rtype: list[str]
     :raises RuntimeError: When the binary was not found (``FileNotFoundError``).
     """
     if cmd_cb is not None:
         cmd_cb(" ".join(cmd))
+    stderr_dest = subprocess.STDOUT if capture_stderr else subprocess.DEVNULL
     try:
         proc = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
+            stderr=stderr_dest,
             text=True,
         )
     except FileNotFoundError:
@@ -62,7 +71,7 @@ def run_tool(
 
     proc.wait()
 
-    if proc.returncode != 0:
+    if proc.returncode != 0 and not ignore_returncode:
         return []
 
     return lines

@@ -46,3 +46,6 @@ junit/
 # Distribution
 dist/
 build/
+
+# Logs
+reports/*.log

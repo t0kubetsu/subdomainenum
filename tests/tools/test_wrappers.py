@@ -14,7 +14,7 @@ from subdomainenum.tools.findomain import run_findomain
 from subdomainenum.tools.gobuster_dns import run_gobuster_dns
 from subdomainenum.tools.subfinder import run_subfinder
 from subdomainenum.tools.wfuzz import run_wfuzz
-from subdomainenum.models import SourceResult, VhostResult
+from subdomainenum.models import EnumMode, SourceResult, VhostResult
 
 
 # ---------------------------------------------------------------------------
@@ -168,63 +168,113 @@ class TestRunAssetfinder:
 class TestRunDnsrecon:
     def test_returns_source_result(self) -> None:
         with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=[]):
-            result = run_dnsrecon("example.com", wordlist="/tmp/words.txt")
+            result = run_dnsrecon("example.com", mode=EnumMode.ALL, wordlist="/tmp/words.txt")
         assert isinstance(result, SourceResult)
         assert result.name == "dnsrecon"
 
     def test_single_invocation(self) -> None:
         with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=[]) as mock:
-            run_dnsrecon("example.com", wordlist="/tmp/words.txt")
+            run_dnsrecon("example.com", mode=EnumMode.ALL, wordlist="/tmp/words.txt")
         assert mock.call_count == 1
 
-    def test_command_uses_std_and_brt_types(self) -> None:
+    def test_all_mode_uses_std_srv_and_brt_types(self) -> None:
         with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=[]) as mock:
-            run_dnsrecon("example.com", wordlist="/tmp/words.txt")
+            run_dnsrecon("example.com", mode=EnumMode.ALL, wordlist="/tmp/words.txt")
             cmd = mock.call_args[0][0]
         type_val = cmd[cmd.index("-t") + 1]
         assert "std" in type_val
+        assert "srv" in type_val
         assert "brt" in type_val
 
-    def test_command_includes_all_boolean_flags(self) -> None:
+    def test_all_mode_includes_passive_and_active_flags(self) -> None:
         with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=[]) as mock:
-            run_dnsrecon("example.com", wordlist="/tmp/words.txt")
+            run_dnsrecon("example.com", mode=EnumMode.ALL, wordlist="/tmp/words.txt")
             cmd = mock.call_args[0][0]
-        for flag in ("-a", "-s", "-b", "-y", "-k", "-w", "-z"):
+        for flag in ("-a", "-b", "-y", "-k", "-z"):
             assert flag in cmd, f"expected {flag} in command"
 
-    def test_wordlist_in_command(self) -> None:
+    def test_all_mode_wordlist_in_command(self) -> None:
         with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=[]) as mock:
-            run_dnsrecon("example.com", wordlist="/tmp/subdomains.txt")
+            run_dnsrecon("example.com", mode=EnumMode.ALL, wordlist="/tmp/subdomains.txt")
             cmd = mock.call_args[0][0]
         assert "-D" in cmd
         assert "/tmp/subdomains.txt" in cmd
 
-    def test_shodan_flag_added_when_api_key_set(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("SHODAN_API_KEY", "testkey123")
+    def test_passive_mode_uses_std_and_srv_types(self) -> None:
         with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=[]) as mock:
-            run_dnsrecon("example.com", wordlist="/tmp/w.txt")
+            run_dnsrecon("example.com", mode=EnumMode.PASSIVE)
             cmd = mock.call_args[0][0]
-        assert "--shodan" in cmd
+        type_val = cmd[cmd.index("-t") + 1]
+        assert "std" in type_val
+        assert "srv" in type_val
+        assert "brt" not in type_val
 
-    def test_shodan_flag_absent_when_no_api_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.delenv("SHODAN_API_KEY", raising=False)
+    def test_passive_mode_includes_passive_flags(self) -> None:
         with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=[]) as mock:
-            run_dnsrecon("example.com", wordlist="/tmp/w.txt")
+            run_dnsrecon("example.com", mode=EnumMode.PASSIVE)
             cmd = mock.call_args[0][0]
-        assert "--shodan" not in cmd
+        for flag in ("-b", "-y", "-k"):
+            assert flag in cmd, f"expected {flag} in passive command"
+
+    def test_passive_mode_excludes_active_flags(self) -> None:
+        with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=[]) as mock:
+            run_dnsrecon("example.com", mode=EnumMode.PASSIVE)
+            cmd = mock.call_args[0][0]
+        assert "-a" not in cmd
+        assert "-z" not in cmd
+        assert "-D" not in cmd
+
+    def test_active_mode_uses_brt_type(self) -> None:
+        with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=[]) as mock:
+            run_dnsrecon("example.com", mode=EnumMode.ACTIVE, wordlist="/tmp/words.txt")
+            cmd = mock.call_args[0][0]
+        type_val = cmd[cmd.index("-t") + 1]
+        assert "brt" in type_val
+        assert "std" not in type_val
+
+    def test_active_mode_includes_active_flags_and_wordlist(self) -> None:
+        with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=[]) as mock:
+            run_dnsrecon("example.com", mode=EnumMode.ACTIVE, wordlist="/tmp/words.txt")
+            cmd = mock.call_args[0][0]
+        assert "-a" in cmd
+        assert "-z" in cmd
+        assert "-D" in cmd
+        assert "/tmp/words.txt" in cmd
+
+    def test_active_mode_excludes_passive_flags(self) -> None:
+        with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=[]) as mock:
+            run_dnsrecon("example.com", mode=EnumMode.ACTIVE, wordlist="/tmp/words.txt")
+            cmd = mock.call_args[0][0]
+        assert "-b" not in cmd
+        assert "-y" not in cmd
+        assert "-k" not in cmd
 
     def test_tool_missing_sets_available_false(self) -> None:
         with patch(
             "subdomainenum.tools.dnsrecon.run_tool",
             side_effect=RuntimeError("dnsrecon not found"),
         ):
-            result = run_dnsrecon("example.com", wordlist="/tmp/w.txt")
+            result = run_dnsrecon("example.com", mode=EnumMode.PASSIVE)
         assert result.available is False
+
+    def test_parses_logging_format_output(self) -> None:
+        """dnsrecon writes via Python logging (to stderr); parse the timestamped format."""
+        output = ["2026-04-13T11:10:38.863437-0400 INFO      A sub.example.com 1.2.3.4"]
+        with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=output):
+            result = run_dnsrecon("example.com", mode=EnumMode.ACTIVE, wordlist="/tmp/w.txt")
+        assert "sub.example.com" in result.subdomains
+
+    def test_parses_cname_logging_format(self) -> None:
+        """CNAME lines in logging format are also parsed correctly."""
+        output = ["2026-04-13T11:10:40.252299-0400 INFO      CNAME cr.example.com alias.example.com"]
+        with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=output):
+            result = run_dnsrecon("example.com", mode=EnumMode.ACTIVE, wordlist="/tmp/w.txt")
+        assert "cr.example.com" in result.subdomains
 
     def test_parses_output_lines(self) -> None:
         output = ["[*] A sub.example.com 1.2.3.4"]
         with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=output):
-            result = run_dnsrecon("example.com", wordlist="/tmp/w.txt")
+            result = run_dnsrecon("example.com", mode=EnumMode.PASSIVE)
         assert "sub.example.com" in result.subdomains
 
     def test_deduplicates_subdomains(self) -> None:
@@ -233,13 +283,25 @@ class TestRunDnsrecon:
             "[*] AAAA dup.example.com ::1",
         ]
         with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=output):
-            result = run_dnsrecon("example.com", wordlist="/tmp/w.txt")
+            result = run_dnsrecon("example.com", mode=EnumMode.PASSIVE)
         assert result.subdomains.count("dup.example.com") == 1
+
+    def test_uses_capture_stderr(self) -> None:
+        """dnsrecon must capture stderr because it logs via Python logging module."""
+        with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=[]) as mock:
+            run_dnsrecon("example.com", mode=EnumMode.PASSIVE)
+        assert mock.call_args.kwargs.get("capture_stderr") is True
+
+    def test_uses_ignore_returncode(self) -> None:
+        """dnsrecon must ignore non-zero exit codes (AXFR refusal etc.)."""
+        with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=[]) as mock:
+            run_dnsrecon("example.com", mode=EnumMode.PASSIVE)
+        assert mock.call_args.kwargs.get("ignore_returncode") is True
 
     def test_cmd_cb_passed_to_run_tool(self) -> None:
         cb = lambda cmd: None
         with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=[]) as mock:
-            run_dnsrecon("example.com", wordlist="/tmp/w.txt", cmd_cb=cb)
+            run_dnsrecon("example.com", mode=EnumMode.PASSIVE, cmd_cb=cb)
         assert mock.call_args.kwargs.get("cmd_cb") is cb
 
 

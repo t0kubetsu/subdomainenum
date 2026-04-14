@@ -83,11 +83,16 @@ def _run_passive(
         _cb("Running assetfinder…")
         return run_assetfinder(domain, line_cb=_line_cb("assetfinder"), cmd_cb=_cmd_cb("assetfinder"))
 
+    def _run_dnsrecon_passive() -> SourceResult:
+        _cb("Running dnsrecon (passive)…")
+        return run_dnsrecon(domain, mode=EnumMode.PASSIVE, line_cb=_line_cb("dnsrecon"), cmd_cb=_cmd_cb("dnsrecon"))
+
     source_tasks: dict[str, Callable[[], SourceResult]] = {
         "subfinder": _run_subfinder,
         "amass": _run_amass,
         "findomain": _run_findomain,
         "assetfinder": _run_assetfinder,
+        "dnsrecon": _run_dnsrecon_passive,
     }
     with ThreadPoolExecutor(max_workers=len(source_tasks)) as pool:
         futures = {pool.submit(fn): name for name, fn in source_tasks.items()}
@@ -147,8 +152,8 @@ def _run_active(
     sources: list[SourceResult] = []
     vhosts: list[VhostResult] = []
 
-    _cb("Running dnsrecon (brute-force)…")
-    result = run_dnsrecon(domain, wordlist=wordlist, line_cb=_line_cb("dnsrecon"), cmd_cb=_cmd_cb("dnsrecon"))
+    _cb("Running dnsrecon (active)…")
+    result = run_dnsrecon(domain, mode=EnumMode.ACTIVE, wordlist=wordlist, line_cb=_line_cb("dnsrecon"), cmd_cb=_cmd_cb("dnsrecon"))
     sources.append(result)
     if finish_cb:
         finish_cb("dnsrecon", result.error)
@@ -249,6 +254,10 @@ def assess(
 
     if mode in (EnumMode.ACTIVE, EnumMode.ALL):
         _cb("Starting active enumeration…")
+        if url is None:
+            ips = resolve_ips(domain)
+            if ips:
+                url = f"http://{ips[0]}"
         active_sources, vhosts = _run_active(domain, wordlist=wordlist, url=url, progress_cb=progress_cb, debug_cb=debug_cb, cmd_cb=cmd_cb, finish_cb=finish_cb)  # type: ignore[arg-type]
         all_sources.extend(active_sources)
         all_vhosts.extend(vhosts)

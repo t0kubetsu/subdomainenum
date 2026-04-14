@@ -112,3 +112,29 @@ class TestRunTool:
         with patch("subprocess.Popen", return_value=_make_popen("")):
             run_tool(cmd, timeout=30, cmd_cb=received.append)
         assert received == ["gobuster dns -d example.com -w /tmp/w.txt"]
+
+    def test_capture_stderr_merges_into_stdout(self) -> None:
+        """capture_stderr=True passes subprocess.STDOUT as stderr dest."""
+        with patch("subprocess.Popen", return_value=_make_popen("line1\n")) as mock_popen:
+            run_tool(["tool"], timeout=30, capture_stderr=True)
+        _, kwargs = mock_popen.call_args
+        assert kwargs["stderr"] == subprocess.STDOUT
+
+    def test_capture_stderr_false_uses_devnull(self) -> None:
+        """capture_stderr=False (default) discards stderr."""
+        with patch("subprocess.Popen", return_value=_make_popen("line1\n")) as mock_popen:
+            run_tool(["tool"], timeout=30, capture_stderr=False)
+        _, kwargs = mock_popen.call_args
+        assert kwargs["stderr"] == subprocess.DEVNULL
+
+    def test_ignore_returncode_returns_lines_on_nonzero_exit(self) -> None:
+        """ignore_returncode=True keeps collected lines even when exit code != 0."""
+        with patch("subprocess.Popen", return_value=_make_popen("sub.example.com\n", returncode=1)):
+            lines = run_tool(["tool"], timeout=30, ignore_returncode=True)
+        assert lines == ["sub.example.com"]
+
+    def test_ignore_returncode_false_drops_lines_on_nonzero_exit(self) -> None:
+        """Default behaviour: non-zero exit discards collected lines."""
+        with patch("subprocess.Popen", return_value=_make_popen("sub.example.com\n", returncode=1)):
+            lines = run_tool(["tool"], timeout=30, ignore_returncode=False)
+        assert lines == []

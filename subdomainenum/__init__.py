@@ -7,7 +7,7 @@ try:
 
     __version__ = version("subdomainenum")
 except Exception:
-    __version__ = "0.6.3"
+    __version__ = "0.7.0"
 
 # NullHandler so library users who have not configured logging
 # do not see "No handler found" warnings (PEP 3118 / logging HOWTO).

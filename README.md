@@ -13,7 +13,7 @@ $ subdomainenum check example.com
 ```
 
 ![Python](https://img.shields.io/badge/python-%3E%3D3.11-blue)
-![Tests](https://img.shields.io/badge/tests-186%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-201%20passing-brightgreen)
 ![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen)
 ![License](https://img.shields.io/badge/license-GPLv3-lightgrey)
 
@@ -42,7 +42,7 @@ $ subdomainenum check example.com
 | **amass**          | Passive | Runs `amass enum -d domain -silent`                                                  |
 | **findomain**      | Passive | Runs `findomain --target domain --quiet`                                             |
 | **assetfinder**    | Passive | Runs `assetfinder --subs-only domain`                                                |
-| **dnsrecon**       | Active  | Runs all applicable types: `std,srv,axfr,crt,zonewalk,bing,yand` + `brt,snoop`      |
+| **dnsrecon**       | Passive + Active | Passive: `std,srv` with Bing/Yandex/crt.sh (`-b -y -k`); Active: `brt` with AXFR/DNSSEC zone walk (`-a -z`) |
 | **gobuster dns**   | Active  | Brute-forces DNS with a wordlist (`gobuster dns --domain domain -w wordlist`)        |
 | **wfuzz**          | Active  | Fuzzes virtual hosts via the `Host` header against a target URL                      |
 | **DNS resolution** | —       | All discovered FQDNs are resolved (A + AAAA) in parallel with a configurable timeout |
@@ -287,7 +287,7 @@ subdomainenum/
 │       ├── amass.py         amass enum wrapper (passive is amass's default)
 │       ├── findomain.py     findomain wrapper
 │       ├── assetfinder.py   assetfinder wrapper
-│       ├── dnsrecon.py      dnsrecon -t brt wrapper
+│       ├── dnsrecon.py      dnsrecon passive (std,srv) and active (brt) wrapper
 │       ├── gobuster_dns.py  gobuster dns wrapper
 │       └── wfuzz.py         wfuzz vhost fuzzing wrapper
 ├── tests/
@@ -330,7 +330,7 @@ pytest tests/test_assessor.py -v
 pytest tests/test_cli.py::TestCheckCommand -v
 ```
 
-The test suite has **186 tests** and achieves **100% coverage** across all modules.
+The test suite has **201 tests** and achieves **100% coverage** across all modules.
 
 All DNS I/O (`dns.resolver.Resolver.resolve`), TLS
 sockets, and subprocess calls are mocked at the boundary — no test touches a real

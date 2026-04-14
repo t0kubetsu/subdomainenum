@@ -110,7 +110,7 @@ def check(
     ] = None,
     url: Annotated[
         Optional[str],
-        typer.Option("--url", "-u", help="Target URL for wfuzz vhost fuzzing (e.g. http://10.0.0.1)."),
+        typer.Option("--url", "-u", help="Target URL for wfuzz vhost fuzzing (e.g. http://10.0.0.1). Auto-derived from the domain's resolved IP when omitted."),
     ] = None,
     output: Annotated[
         Optional[str],
