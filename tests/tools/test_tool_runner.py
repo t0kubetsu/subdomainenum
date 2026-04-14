@@ -113,6 +113,21 @@ class TestRunTool:
             run_tool(cmd, timeout=30, cmd_cb=received.append)
         assert received == ["gobuster dns -d example.com -w /tmp/w.txt"]
 
+    def test_cmd_cb_quotes_args_with_spaces(self) -> None:
+        """Args containing spaces must be shell-quoted in the cmd_cb string."""
+        received: list[str] = []
+        cmd = ["ffuf", "-H", "Host: FUZZ.example.com", "-fc", "400,404"]
+        with patch("subprocess.Popen", return_value=_make_popen("")):
+            run_tool(cmd, timeout=30, cmd_cb=received.append)
+        assert len(received) == 1
+        # The Host header value must be quoted so the string is shell-safe.
+        assert "Host: FUZZ.example.com" in received[0]
+        assert received[0].count("Host: FUZZ.example.com") == 1
+        # Unquoted form must NOT appear (would break shell copy-paste).
+        import shlex
+        reparsed = shlex.split(received[0])
+        assert "Host: FUZZ.example.com" in reparsed
+
     def test_capture_stderr_merges_into_stdout(self) -> None:
         """capture_stderr=True passes subprocess.STDOUT as stderr dest."""
         with patch("subprocess.Popen", return_value=_make_popen("line1\n")) as mock_popen:

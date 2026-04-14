@@ -13,7 +13,7 @@ $ subdomainenum check example.com
 ```
 
 ![Python](https://img.shields.io/badge/python-%3E%3D3.11-blue)
-![Tests](https://img.shields.io/badge/tests-201%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-213%20passing-brightgreen)
 ![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen)
 ![License](https://img.shields.io/badge/license-GPLv3-lightgrey)
 
@@ -44,7 +44,7 @@ $ subdomainenum check example.com
 | **assetfinder**    | Passive | Runs `assetfinder --subs-only domain`                                                |
 | **dnsrecon**       | Passive + Active | Passive: `std,srv` with Bing/Yandex/crt.sh (`-b -y -k`); Active: `brt` with AXFR/DNSSEC zone walk (`-a -z`) |
 | **gobuster dns**   | Active  | Brute-forces DNS with a wordlist (`gobuster dns --domain domain -w wordlist`)        |
-| **wfuzz**          | Active  | Fuzzes virtual hosts via the `Host` header against a target URL                      |
+| **ffuf**           | Active  | Fuzzes virtual hosts via the `Host` header against a target URL                      |
 | **DNS resolution** | —       | All discovered FQDNs are resolved (A + AAAA) in parallel with a configurable timeout |
 
 Passive and active sources can be run independently or combined (`--mode all`).
@@ -93,7 +93,7 @@ Run `subdomainenum info` to check which tools are detected on your `$PATH`:
 | assetfinder | `go install github.com/tomnomnom/assetfinder@latest`                       |
 | dnsrecon    | `apt install dnsrecon` / `pip install dnsrecon`                            |
 | gobuster    | `go install github.com/OJ/gobuster/v3@latest`                              |
-| wfuzz       | `apt install wfuzz` / `pip install wfuzz`                                  |
+| ffuf        | `go install github.com/ffuf/ffuf/v2@latest`                                |
 
 ---
 
@@ -289,7 +289,7 @@ subdomainenum/
 │       ├── assetfinder.py   assetfinder wrapper
 │       ├── dnsrecon.py      dnsrecon passive (std,srv) and active (brt) wrapper
 │       ├── gobuster_dns.py  gobuster dns wrapper
-│       └── wfuzz.py         wfuzz vhost fuzzing wrapper
+│       └── ffuf.py          ffuf vhost fuzzing wrapper
 ├── tests/
 │   ├── __init__.py
 │   ├── test_models.py
@@ -330,7 +330,7 @@ pytest tests/test_assessor.py -v
 pytest tests/test_cli.py::TestCheckCommand -v
 ```
 
-The test suite has **201 tests** and achieves **100% coverage** across all modules.
+The test suite has **213 tests** and achieves **100% coverage** across all modules.
 
 All DNS I/O (`dns.resolver.Resolver.resolve`), TLS
 sockets, and subprocess calls are mocked at the boundary — no test touches a real

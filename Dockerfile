@@ -6,7 +6,8 @@ FROM golang:latest AS go-builder
 RUN go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest && \
     go install -v github.com/owasp-amass/amass/v4/...@latest && \
     go install -v github.com/OJ/gobuster/v3@latest && \
-    go install -v github.com/tomnomnom/assetfinder@latest
+    go install -v github.com/tomnomnom/assetfinder@latest && \
+    go install -v github.com/ffuf/ffuf/v2@latest
 
 # ===========================================================================
 # Stage 2 – Python runtime with all tools installed
@@ -17,13 +18,12 @@ LABEL org.opencontainers.image.title="subdomainenum" \
       org.opencontainers.image.description="Passive & active subdomain enumeration CLI" \
       org.opencontainers.image.source="https://github.com/t0kubetsu/subdomainenum"
 
-# System tools: dnsrecon, wfuzz, git (for SecLists sparse checkout), curl
+# System tools: dnsrecon, git (for SecLists sparse checkout), curl
 RUN apt-get update && apt-get install -y --no-install-recommends \
         git \
         curl \
         unzip \
         dnsrecon \
-        wfuzz \
         libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
@@ -32,6 +32,7 @@ COPY --from=go-builder /go/bin/subfinder    /usr/local/bin/subfinder
 COPY --from=go-builder /go/bin/amass        /usr/local/bin/amass
 COPY --from=go-builder /go/bin/gobuster     /usr/local/bin/gobuster
 COPY --from=go-builder /go/bin/assetfinder  /usr/local/bin/assetfinder
+COPY --from=go-builder /go/bin/ffuf         /usr/local/bin/ffuf
 
 # findomain – download pre-built Linux binary from GitHub releases
 # (package was removed from crates.io)

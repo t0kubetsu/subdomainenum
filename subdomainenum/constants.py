@@ -34,9 +34,9 @@ ACTIVE_TOOLS: dict[str, dict[str, str]] = {
         "binary": "gobuster",
         "install": "go install github.com/OJ/gobuster/v3@latest",
     },
-    "wfuzz": {
-        "binary": "wfuzz",
-        "install": "pip install wfuzz",
+    "ffuf": {
+        "binary": "ffuf",
+        "install": "go install github.com/ffuf/ffuf/v2@latest",
     },
 }
 

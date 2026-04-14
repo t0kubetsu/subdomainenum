@@ -59,7 +59,7 @@ class TestAssess:
         mock_active.assert_called_once()
 
     def test_auto_derives_url_from_resolved_ip(self) -> None:
-        """When url is None and domain resolves, wfuzz URL is derived from first IP."""
+        """When url is None and domain resolves, ffuf URL is derived from first IP."""
         with (
             patch("subdomainenum.assessor._run_passive", return_value=[]),
             patch("subdomainenum.assessor._run_active", return_value=([], [])) as mock_active,
@@ -70,7 +70,7 @@ class TestAssess:
         _, kwargs = mock_active.call_args
         assert kwargs["url"] == "http://1.2.3.4"
 
-    def test_skips_wfuzz_when_domain_does_not_resolve(self) -> None:
+    def test_skips_ffuf_when_domain_does_not_resolve(self) -> None:
         """When url is None and domain resolves to no IPs, url stays None."""
         with (
             patch("subdomainenum.assessor._run_passive", return_value=[]),
@@ -278,23 +278,23 @@ class TestRunActive:
         with (
             patch("subdomainenum.assessor.run_dnsrecon", return_value=src),
             patch("subdomainenum.assessor.run_gobuster_dns", return_value=src),
-            patch("subdomainenum.assessor.run_wfuzz") as mock_wfuzz,
+            patch("subdomainenum.assessor.run_ffuf") as mock_ffuf,
         ):
             sources, vhosts = _run_active("example.com", wordlist="/tmp/w.txt", url=None, progress_cb=None)
-        mock_wfuzz.assert_not_called()
+        mock_ffuf.assert_not_called()
         assert len(sources) == 2
 
-    def test_runs_wfuzz_when_url_provided(self) -> None:
+    def test_runs_ffuf_when_url_provided(self) -> None:
         src = _make_source()
         with (
             patch("subdomainenum.assessor.run_dnsrecon", return_value=src),
             patch("subdomainenum.assessor.run_gobuster_dns", return_value=src),
-            patch("subdomainenum.assessor.run_wfuzz", return_value=[]) as mock_wfuzz,
+            patch("subdomainenum.assessor.run_ffuf", return_value=[]) as mock_ffuf,
         ):
             sources, vhosts = _run_active(
                 "example.com", wordlist="/tmp/w.txt", url="http://example.com", progress_cb=None
             )
-        mock_wfuzz.assert_called_once()
+        mock_ffuf.assert_called_once()
 
     def test_progress_cb_called(self) -> None:
         calls: list[str] = []
@@ -372,14 +372,14 @@ class TestRunActive:
         assert "gobuster" in names
         assert all(err is None for _, err in finish_calls)
 
-    def test_finish_cb_called_for_wfuzz(self) -> None:
-        """finish_cb is called for wfuzz when url is provided."""
+    def test_finish_cb_called_for_ffuf(self) -> None:
+        """finish_cb is called for ffuf when url is provided."""
         finish_calls: list[tuple] = []
         src = _make_source()
         with (
             patch("subdomainenum.assessor.run_dnsrecon", return_value=src),
             patch("subdomainenum.assessor.run_gobuster_dns", return_value=src),
-            patch("subdomainenum.assessor.run_wfuzz", return_value=[]),
+            patch("subdomainenum.assessor.run_ffuf", return_value=[]),
         ):
             _run_active(
                 "example.com",
@@ -389,7 +389,7 @@ class TestRunActive:
                 finish_cb=lambda name, err: finish_calls.append((name, err)),
             )
         names = [n for n, _ in finish_calls]
-        assert "wfuzz" in names
+        assert "ffuf" in names
 
 
 # ---------------------------------------------------------------------------

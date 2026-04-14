@@ -19,7 +19,7 @@ from subdomainenum.tools.dnsrecon import run_dnsrecon
 from subdomainenum.tools.findomain import run_findomain
 from subdomainenum.tools.gobuster_dns import run_gobuster_dns
 from subdomainenum.tools.subfinder import run_subfinder
-from subdomainenum.tools.wfuzz import run_wfuzz
+from subdomainenum.tools.ffuf import run_ffuf
 from subdomainenum.dns_utils import resolve_ips
 from subdomainenum.models import (
     EnumMode,
@@ -165,10 +165,10 @@ def _run_active(
         finish_cb("gobuster", result.error)
 
     if url:
-        _cb("Running wfuzz (vhost fuzzing)…")
-        vhosts = run_wfuzz(domain, url=url, wordlist=wordlist, line_cb=_line_cb("wfuzz"), cmd_cb=_cmd_cb("wfuzz"))
+        _cb("Running ffuf (vhost fuzzing)…")
+        vhosts = run_ffuf(domain, url=url, wordlist=wordlist, line_cb=_line_cb("ffuf"), cmd_cb=_cmd_cb("ffuf"))
         if finish_cb:
-            finish_cb("wfuzz", None)
+            finish_cb("ffuf", None)
 
     return sources, vhosts
 

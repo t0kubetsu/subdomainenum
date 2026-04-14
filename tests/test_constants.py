@@ -12,7 +12,7 @@ class TestActiveTools:
         assert len(ACTIVE_TOOLS) > 0
 
     def test_required_tools_present(self) -> None:
-        required = {"subfinder", "amass", "findomain", "assetfinder", "dnsrecon", "gobuster", "wfuzz"}
+        required = {"subfinder", "amass", "findomain", "assetfinder", "dnsrecon", "gobuster", "ffuf"}
         assert required.issubset(ACTIVE_TOOLS.keys())
 
     def test_each_tool_has_binary_key(self) -> None:

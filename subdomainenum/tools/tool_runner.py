@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shlex
 import subprocess
 import threading
 from typing import Callable
@@ -36,7 +37,7 @@ def run_tool(
     :raises RuntimeError: When the binary was not found (``FileNotFoundError``).
     """
     if cmd_cb is not None:
-        cmd_cb(" ".join(cmd))
+        cmd_cb(shlex.join(cmd))
     stderr_dest = subprocess.STDOUT if capture_stderr else subprocess.DEVNULL
     try:
         proc = subprocess.Popen(

@@ -38,7 +38,7 @@ subdomainenum/
     assetfinder.py  → run_assetfinder()
     dnsrecon.py     → run_dnsrecon()
     gobuster_dns.py → run_gobuster_dns()
-    wfuzz.py        → run_wfuzz() → list[VhostResult]
+    ffuf.py         → run_ffuf() → list[VhostResult]
 tests/
   conftest.py              → shared fixtures
   test_*.py                → pytest, AAA pattern, class-per-feature grouping
@@ -65,7 +65,7 @@ tests/
 
 ### EnumMode behaviour
 - `passive` — subfinder, amass, findomain, assetfinder (assetfinder also queries crt.sh, certspotter, and other CT sources internally)
-- `active` — dnsrecon, gobuster dns (require `--wordlist`); wfuzz only when `--url` provided
+- `active` — dnsrecon, gobuster dns (require `--wordlist`); ffuf only when `--url` provided
 - `all` — both passive and active
 
 ## Testing Conventions
@@ -74,7 +74,7 @@ tests/
 - Test class naming: `TestRunTool`, `TestQueryCrtSh`, `TestAssess`, etc. (class-per-feature)
 - AAA pattern: Arrange → Act → Assert in every test method
 - Coverage target: ≥ 80% (configured in `pyproject.toml`)
-- Current test count: **201 tests**
+- Current test count: **213 tests**
 
 ## Adding a New Passive Source
 1. Add a `query_<name>(domain) → SourceResult` function directly in `assessor.py` or a new helper module
