@@ -282,7 +282,9 @@ class TestRunActive:
         ):
             sources, vhosts = _run_active("example.com", wordlist="/tmp/w.txt", url=None, progress_cb=None)
         mock_ffuf.assert_not_called()
-        assert len(sources) == 2
+        assert len(sources) == 3
+        ffuf_src = next(s for s in sources if s.name == "ffuf")
+        assert ffuf_src.available is False
 
     def test_runs_ffuf_when_url_provided(self) -> None:
         src = _make_source()
@@ -370,7 +372,9 @@ class TestRunActive:
         names = [n for n, _ in finish_calls]
         assert "dnsrecon" in names
         assert "gobuster" in names
-        assert all(err is None for _, err in finish_calls)
+        assert "ffuf" in names
+        ffuf_err = next(err for name, err in finish_calls if name == "ffuf")
+        assert ffuf_err is not None  # skipped without url
 
     def test_finish_cb_called_for_ffuf(self) -> None:
         """finish_cb is called for ffuf when url is provided."""

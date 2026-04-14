@@ -167,8 +167,13 @@ def _run_active(
     if url:
         _cb("Running ffuf (vhost fuzzing)…")
         vhosts = run_ffuf(domain, url=url, wordlist=wordlist, line_cb=_line_cb("ffuf"), cmd_cb=_cmd_cb("ffuf"))
+        sources.append(SourceResult(name="ffuf", subdomains=[v.vhost for v in vhosts]))
         if finish_cb:
             finish_cb("ffuf", None)
+    else:
+        sources.append(SourceResult(name="ffuf", available=False, error="no URL resolved"))
+        if finish_cb:
+            finish_cb("ffuf", "no URL resolved")
 
     return sources, vhosts
 
