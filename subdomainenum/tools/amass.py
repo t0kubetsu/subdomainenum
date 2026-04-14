@@ -17,9 +17,6 @@ def run_amass(
 ) -> SourceResult:
     """Run amass for *domain* and return a :class:`~subdomainenum.models.SourceResult`.
 
-    Passive enumeration is amass's default mode since the ``-passive`` flag
-    was deprecated.
-
     :param domain: Target base domain.
     :param timeout: Maximum seconds to wait for amass (it can be slow).
     :param line_cb: Optional callback invoked with each output line (for debug mode).
@@ -27,7 +24,7 @@ def run_amass(
     :rtype: SourceResult
     """
     result = SourceResult(name="amass")
-    cmd = ["amass", "enum", "-d", domain, "-silent"]
+    cmd = ["amass", "enum", "-d", domain]
     try:
         lines = run_tool(cmd, timeout=timeout, line_cb=line_cb, cmd_cb=cmd_cb)
     except RuntimeError as exc:
