@@ -154,7 +154,16 @@ def check(
         _err.print(f"[red]Error:[/red] wordlist not found: {wordlist}")
         raise typer.Exit(code=1)
 
-    logger: DebugLogger | None = DebugLogger() if debug_log else None
+    logger: DebugLogger | None = None
+    if debug_log:
+        logger = DebugLogger()
+        logger.set_invocation(
+            version=__version__,
+            mode=mode.value,
+            wordlist=wordlist,
+            url=url,
+            timeout=timeout,
+        )
 
     with Progress(SpinnerColumn(), TextColumn("{task.description}"), console=_err) as progress:
         task = progress.add_task(f"Enumerating {domain}…", total=None)

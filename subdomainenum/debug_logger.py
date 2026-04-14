@@ -38,6 +38,7 @@ class DebugLogger:
         self._commands: dict[str, str] = {}
         self._errors: dict[str, str | None] = {}
         self._statuses: dict[str, str] = {}
+        self._invocation: dict[str, str] = {}
 
     # ------------------------------------------------------------------
     # Callbacks wired to assess()
@@ -84,6 +85,31 @@ class DebugLogger:
             self._errors[source] = error
             self._statuses[source] = "FAILED" if error else "DONE"
 
+    def set_invocation(
+        self,
+        version: str,
+        mode: str,
+        wordlist: str | None,
+        url: str | None,
+        timeout: float,
+    ) -> None:
+        """Record the CLI invocation parameters for inclusion in the log header.
+
+        :param version: subdomainenum version string (e.g. ``"0.7.1"``).
+        :param mode: Enumeration mode string (e.g. ``"passive"``, ``"active"``, ``"all"``).
+        :param wordlist: Path to the DNS wordlist file, or ``None`` if not used.
+        :param url: Target URL for vhost fuzzing, or ``None`` if not used.
+        :param timeout: DNS resolution timeout per query in seconds.
+        """
+        with self._lock:
+            self._invocation = {
+                "version": version,
+                "mode": mode,
+                "wordlist": wordlist or "none",
+                "url": url or "none",
+                "timeout": f"{timeout}s",
+            }
+
     # ------------------------------------------------------------------
     # Output
     # ------------------------------------------------------------------
@@ -101,6 +127,7 @@ class DebugLogger:
             commands = dict(self._commands)
             statuses = dict(self._statuses)
             errors = dict(self._errors)
+            invocation = dict(self._invocation)
 
         now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         parts: list[str] = []
@@ -108,6 +135,13 @@ class DebugLogger:
         parts.append(header)
         parts.append("=" * len(header))
         parts.append("")
+
+        if invocation:
+            parts.append("Invocation")
+            field_width = max(len(k) for k in invocation)
+            for key, val in invocation.items():
+                parts.append(f"  {key:<{field_width}} : {val}")
+            parts.append("")
 
         for source in order:
             status = statuses.get(source, "PENDING")

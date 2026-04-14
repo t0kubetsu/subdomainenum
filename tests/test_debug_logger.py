@@ -92,6 +92,43 @@ class TestFinish:
         assert "san" in logger._order
 
 
+class TestSetInvocation:
+    def test_set_invocation_stores_version(self) -> None:
+        logger = DebugLogger()
+        logger.set_invocation("0.7.2", "passive", None, None, 5.0)
+        assert logger._invocation["version"] == "0.7.2"
+
+    def test_set_invocation_stores_mode(self) -> None:
+        logger = DebugLogger()
+        logger.set_invocation("0.7.2", "all", "/tmp/words.txt", "http://10.0.0.1", 3.0)
+        assert logger._invocation["mode"] == "all"
+
+    def test_set_invocation_wordlist_none_shown_as_none_string(self) -> None:
+        logger = DebugLogger()
+        logger.set_invocation("0.7.2", "passive", None, None, 5.0)
+        assert logger._invocation["wordlist"] == "none"
+
+    def test_set_invocation_url_none_shown_as_none_string(self) -> None:
+        logger = DebugLogger()
+        logger.set_invocation("0.7.2", "passive", None, None, 5.0)
+        assert logger._invocation["url"] == "none"
+
+    def test_set_invocation_timeout_formatted_with_unit(self) -> None:
+        logger = DebugLogger()
+        logger.set_invocation("0.7.2", "passive", None, None, 10.0)
+        assert logger._invocation["timeout"] == "10.0s"
+
+    def test_set_invocation_wordlist_stored_when_provided(self) -> None:
+        logger = DebugLogger()
+        logger.set_invocation("0.7.2", "active", "/opt/words.txt", None, 5.0)
+        assert logger._invocation["wordlist"] == "/opt/words.txt"
+
+    def test_set_invocation_url_stored_when_provided(self) -> None:
+        logger = DebugLogger()
+        logger.set_invocation("0.7.2", "all", "/tmp/w.txt", "http://10.0.0.1", 5.0)
+        assert logger._invocation["url"] == "http://10.0.0.1"
+
+
 class TestFormatLog:
     def test_format_log_includes_domain(self) -> None:
         logger = DebugLogger()
@@ -149,6 +186,27 @@ class TestFormatLog:
         logger.finish("san", None)
         result = logger.format_log()
         assert "(no output)" in result
+
+    def test_format_log_includes_invocation_block(self) -> None:
+        logger = DebugLogger()
+        logger.set_invocation("0.7.2", "all", "/tmp/words.txt", "http://10.0.0.1", 5.0)
+        result = logger.format_log(domain="example.com")
+        assert "Invocation" in result
+        assert "mode" in result
+        assert "all" in result
+
+    def test_format_log_invocation_shows_none_for_missing_optional_params(self) -> None:
+        logger = DebugLogger()
+        logger.set_invocation("0.7.2", "passive", None, None, 5.0)
+        result = logger.format_log()
+        assert "wordlist" in result
+        assert "none" in result
+
+    def test_format_log_no_invocation_block_when_not_set(self) -> None:
+        logger = DebugLogger()
+        logger.add_line("subfinder", "x.example.com")
+        result = logger.format_log()
+        assert "Invocation" not in result
 
 
 class TestSaveToFile:
