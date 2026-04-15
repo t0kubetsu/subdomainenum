@@ -389,7 +389,7 @@ class TestRunDnsrecon:
         with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock:
             run_dnsrecon("example.com", mode=EnumMode.ALL, wordlist="/tmp/words.txt")
             cmd = mock.call_args[0][0]
-        for flag in ("-a", "-b", "-y", "-k", "-z"):
+        for flag in ("-a", "-b", "-y", "-k", "-z", "-s", "-w"):
             assert flag in cmd, f"expected {flag} in command"
 
     def test_all_mode_wordlist_in_command(self) -> None:
@@ -412,7 +412,7 @@ class TestRunDnsrecon:
         with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock:
             run_dnsrecon("example.com", mode=EnumMode.PASSIVE)
             cmd = mock.call_args[0][0]
-        for flag in ("-b", "-y", "-k"):
+        for flag in ("-b", "-y", "-k", "-s", "-w"):
             assert flag in cmd, f"expected {flag} in passive command"
 
     def test_passive_mode_excludes_active_flags(self) -> None:
@@ -514,6 +514,86 @@ class TestRunDnsrecon:
         with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)):
             result = run_dnsrecon("example.com", mode=EnumMode.PASSIVE)
         assert result.timed_out is False
+
+    def test_active_mode_filter_wildcard_default_adds_f(self) -> None:
+        with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock:
+            run_dnsrecon("example.com", mode=EnumMode.ACTIVE, wordlist="/tmp/words.txt")
+            cmd = mock.call_args[0][0]
+        assert "-f" in cmd
+        assert "--iw" not in cmd
+
+    def test_active_mode_no_filter_wildcard_adds_iw(self) -> None:
+        with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock:
+            run_dnsrecon(
+                "example.com", mode=EnumMode.ACTIVE, wordlist="/tmp/words.txt",
+                filter_wildcard=False,
+            )
+            cmd = mock.call_args[0][0]
+        assert "--iw" in cmd
+        assert "-f" not in cmd
+
+    def test_passive_mode_excludes_f_and_iw(self) -> None:
+        with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock:
+            run_dnsrecon("example.com", mode=EnumMode.PASSIVE)
+            cmd = mock.call_args[0][0]
+        assert "-f" not in cmd
+        assert "--iw" not in cmd
+
+    def test_threads_appended_when_provided(self) -> None:
+        with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock:
+            run_dnsrecon("example.com", mode=EnumMode.PASSIVE, threads=10)
+            cmd = mock.call_args[0][0]
+        assert "--threads" in cmd
+        assert cmd[cmd.index("--threads") + 1] == "10"
+
+    def test_threads_omitted_when_none(self) -> None:
+        with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock:
+            run_dnsrecon("example.com", mode=EnumMode.PASSIVE)
+            cmd = mock.call_args[0][0]
+        assert "--threads" not in cmd
+
+    def test_disable_check_nxdomain(self) -> None:
+        with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock:
+            run_dnsrecon("example.com", mode=EnumMode.PASSIVE, disable_check_nxdomain=True)
+            cmd = mock.call_args[0][0]
+        assert "--disable_check_nxdomain" in cmd
+
+    def test_disable_check_recursion(self) -> None:
+        with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock:
+            run_dnsrecon("example.com", mode=EnumMode.PASSIVE, disable_check_recursion=True)
+            cmd = mock.call_args[0][0]
+        assert "--disable_check_recursion" in cmd
+
+    def test_disable_check_bindversion(self) -> None:
+        with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock:
+            run_dnsrecon("example.com", mode=EnumMode.PASSIVE, disable_check_bindversion=True)
+            cmd = mock.call_args[0][0]
+        assert "--disable_check_bindversion" in cmd
+
+    def test_disable_check_flags_absent_by_default(self) -> None:
+        with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock:
+            run_dnsrecon("example.com", mode=EnumMode.PASSIVE)
+            cmd = mock.call_args[0][0]
+        assert "--disable_check_nxdomain" not in cmd
+        assert "--disable_check_recursion" not in cmd
+        assert "--disable_check_bindversion" not in cmd
+
+    def test_all_mode_filter_wildcard_default_adds_f(self) -> None:
+        with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock:
+            run_dnsrecon("example.com", mode=EnumMode.ALL, wordlist="/tmp/words.txt")
+            cmd = mock.call_args[0][0]
+        assert "-f" in cmd
+        assert "--iw" not in cmd
+
+    def test_all_mode_no_filter_wildcard_adds_iw(self) -> None:
+        with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock:
+            run_dnsrecon(
+                "example.com", mode=EnumMode.ALL, wordlist="/tmp/words.txt",
+                filter_wildcard=False,
+            )
+            cmd = mock.call_args[0][0]
+        assert "--iw" in cmd
+        assert "-f" not in cmd
 
 
 # ---------------------------------------------------------------------------
