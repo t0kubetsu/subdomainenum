@@ -10,7 +10,7 @@ from subdomainenum.assessor import assess, _run_passive, _run_active, _resolve_a
 from subdomainenum.models import EnumMode, EnumReport, SourceResult, Status, SubdomainResult
 
 
-def _make_source(*fqdns: str, name: str = "san", available: bool = True) -> SourceResult:
+def _make_source(*fqdns: str, name: str = "subfinder", available: bool = True) -> SourceResult:
     return SourceResult(name=name, subdomains=list(fqdns), available=available)
 
 
@@ -106,7 +106,7 @@ class TestAssess:
 
     def test_deduplicates_subdomains_across_sources(self) -> None:
         sources = [
-            _make_source("sub.example.com", name="san"),
+            _make_source("sub.example.com", name="amass"),
             _make_source("sub.example.com", name="subfinder"),
         ]
         with (
@@ -120,13 +120,13 @@ class TestAssess:
         assert len(report.subdomains) == 1
 
     def test_report_contains_sources(self) -> None:
-        sources = [_make_source("sub.example.com", name="san")]
+        sources = [_make_source("sub.example.com", name="subfinder")]
         with (
             patch("subdomainenum.assessor._run_passive", return_value=sources),
             patch("subdomainenum.assessor._resolve_all", return_value=[]),
         ):
             report = assess("example.com", mode=EnumMode.PASSIVE)
-        assert any(s.name == "san" for s in report.sources)
+        assert any(s.name == "subfinder" for s in report.sources)
 
     def test_active_wordlist_required_raises(self) -> None:
         with pytest.raises(ValueError, match="wordlist"):

@@ -102,7 +102,7 @@ Run `subdomainenum info` to check which tools are detected on your `$PATH`:
 ### Passive enumeration (default)
 
 ```bash
-# Queries TLS SAN, subfinder, amass, findomain, assetfinder (assetfinder includes crt.sh + CT logs)
+# Queries subfinder, amass, findomain, assetfinder, dnsrecon passive (crt.sh via -k)
 subdomainenum check example.com
 ```
 

@@ -66,7 +66,7 @@ class TestSubdomainResult:
             fqdn="sub.example.com",
             status=Status.ALIVE,
             ip_addresses=["1.2.3.4"],
-            sources=["crt.sh", "subfinder"],
+            sources=["dnsrecon", "subfinder"],
             alive=True,
         )
         assert r.alive is True
@@ -114,7 +114,7 @@ class TestSourceResult:
         assert s.error == "binary not found"
 
     def test_subdomains_list(self) -> None:
-        s = SourceResult(name="crt.sh", subdomains=["a.example.com", "b.example.com"])
+        s = SourceResult(name="dnsrecon", subdomains=["a.example.com", "b.example.com"])
         assert len(s.subdomains) == 2
 
     def test_mode_defaults_to_none(self) -> None:

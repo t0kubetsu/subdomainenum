@@ -35,7 +35,7 @@ class Status(str, Enum):
 class EnumMode(str, Enum):
     """Enumeration strategy mode.
 
-    - ``passive`` – only passive sources (crt.sh, SAN probe, subfinder, amass --passive, …).
+    - ``passive`` – only passive sources (subfinder, amass, findomain, assetfinder, dnsrecon passive, …).
     - ``active``  – only active sources (dnsrecon brute-force, gobuster dns, wfuzz vhost fuzzing).
     - ``all``     – run both passive and active sources.
     """
@@ -82,7 +82,7 @@ class VhostResult:
 class SourceResult:
     """Result of a single enumeration source run.
 
-    :param name: Short identifier for the source (e.g. ``"subfinder"``, ``"crt.sh"``).
+    :param name: Short identifier for the source (e.g. ``"subfinder"``, ``"dnsrecon"``).
     :param subdomains: FQDNs discovered by this source.
     :param error: Error message if the source failed; ``None`` on success.
     :param available: ``False`` when the required binary or API was unavailable.

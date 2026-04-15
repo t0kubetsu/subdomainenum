@@ -112,7 +112,7 @@ class TestBuildVerdict:
             SubdomainResult(fqdn="a.example.com", status=Status.ALIVE, alive=True),
             SubdomainResult(fqdn="b.example.com", status=Status.DEAD, alive=False),
         ]
-        sources = [SourceResult(name="crt.sh", available=True)]
+        sources = [SourceResult(name="subfinder", available=True)]
         report = self._make_report(subs=subs, sources=sources)
         v = build_verdict(report)
         assert "2" in v.summary_line  # total subdomains

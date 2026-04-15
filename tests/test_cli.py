@@ -18,9 +18,9 @@ def _make_report(domain: str = "example.com") -> EnumReport:
         domain=domain,
         mode=EnumMode.PASSIVE,
         subdomains=[
-            SubdomainResult(fqdn="sub.example.com", status=Status.ALIVE, alive=True, ip_addresses=["1.2.3.4"], sources=["crt.sh"]),
+            SubdomainResult(fqdn="sub.example.com", status=Status.ALIVE, alive=True, ip_addresses=["1.2.3.4"], sources=["dnsrecon"]),
         ],
-        sources=[SourceResult(name="crt.sh", subdomains=["sub.example.com"], available=True)],
+        sources=[SourceResult(name="dnsrecon", subdomains=["sub.example.com"], available=True)],
     )
 
 
