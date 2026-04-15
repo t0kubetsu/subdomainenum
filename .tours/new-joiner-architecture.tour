@@ -1,0 +1,107 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "Architecture Tour — subdomainenum",
+  "description": "End-to-end walkthrough of how a subdomain enumeration request flows from CLI through orchestration, tool wrappers, DNS resolution, and back to the user.",
+  "ref": "master",
+  "steps": [
+    {
+      "directory": "subdomainenum",
+      "title": "Package Root",
+      "description": "All runtime code lives here. The top-level layout is flat-by-purpose:\n\n- `cli.py` — user entry point\n- `assessor.py` — orchestration\n- `models.py` — data contracts\n- `tools/` — one file per external binary\n- `dns_utils.py`, `verdict.py`, `reporter.py`, `debug_logger.py` — supporting services\n\nThere is no framework magic; the whole call graph is traceable by reading imports."
+    },
+    {
+      "file": "subdomainenum/models.py",
+      "line": 14,
+      "title": "Data Contracts — Status & EnumMode",
+      "description": "`Status` and `EnumMode` are `str` enums, not plain ints, so their values are directly serialisable to JSON and usable as CLI option values without conversion.\n\n**Gotcha**: `EnumMode.ALL` means *both* passive and active — it is not a third strategy, it is a union. Code that checks `mode in (EnumMode.ACTIVE, EnumMode.ALL)` gates on both at once."
+    },
+    {
+      "file": "subdomainenum/models.py",
+      "line": 82,
+      "title": "SourceResult — the universal tool envelope",
+      "description": "`SourceResult` is what every tool wrapper returns regardless of whether it succeeded, failed, timed out, or was simply unavailable. The `available=False` flag is distinct from `error is not None`: a missing binary sets `available=False` while a binary that ran but produced no output leaves `error=None` and `subdomains=[]`.\n\n`timed_out=True` is set separately so the reporter can surface timeout status without treating it as an error."
+    },
+    {
+      "file": "subdomainenum/cli.py",
+      "line": 101,
+      "title": "CLI Entry — check command",
+      "description": "The `check` command is the user-facing entry point. Before calling `assess()` it validates two invariants:\n1. Active/all modes require `--wordlist` (line 149)\n2. The wordlist path must exist on disk (line 153)\n\nEarly exit via `typer.Exit(code=1)` means `assess()` is never reached with invalid inputs — no need to handle these cases inside the library."
+    },
+    {
+      "file": "subdomainenum/cli.py",
+      "line": 168,
+      "title": "Progress Spinner + Callback Wiring",
+      "description": "The Rich progress spinner runs in the same thread as `assess()`. A `_progress_cb` closure captures the `task` handle and calls `progress.update()` on every source transition.\n\nWhen `--debug-log` is active, three more callbacks (`debug_cb`, `cmd_cb`, `finish_cb`) are wired to the `DebugLogger`. These callbacks are the only I/O bridge between the tool wrappers and the logger — `assess()` itself is unaware of logging.\n\n**Gotcha**: The `with Progress(...) as progress:` block ends before the log is saved (line 195). All tool output must be collected before the spinner closes."
+    },
+    {
+      "file": "subdomainenum/assessor.py",
+      "line": 222,
+      "title": "assess() — Public API",
+      "description": "`assess()` is the library's public surface. It accepts a domain and optional callbacks and returns an `EnumReport`. Nothing inside raises; all errors are captured in `SourceResult.error`.\n\nThe three phases run sequentially:\n1. Passive sources in parallel (`_run_passive`)\n2. Active sources sequentially (`_run_active`)\n3. DNS resolution of deduplicated FQDNs (`_resolve_all`)\n\nActive sources are sequential because brute-force tools are CPU/network saturating — running them in parallel would degrade results."
+    },
+    {
+      "file": "subdomainenum/assessor.py",
+      "line": 90,
+      "title": "Passive Fan-out — ThreadPoolExecutor",
+      "description": "Five passive sources submit to a `ThreadPoolExecutor` with `max_workers=5` (one per source). `as_completed()` is used instead of `map()` so the progress callback fires as soon as each future resolves rather than waiting for all to finish.\n\n**Gotcha**: The executor catches all exceptions from tool wrappers (line 106) and converts them into `SourceResult(available=False)`. This means a bug in one wrapper cannot abort the entire scan."
+    },
+    {
+      "file": "subdomainenum/assessor.py",
+      "line": 276,
+      "title": "Deduplication + Source Attribution",
+      "description": "`fqdn_sources` is built by iterating over all `SourceResult.subdomains` lists and accumulating which sources found each FQDN. A set-like deduplication happens here — the same FQDN from two sources results in one `SubdomainResult` with `sources=[\"subfinder\", \"amass\"]`.\n\nThis dict is the only place where per-source data is merged. Downstream (reporter, verdict) only sees the deduplicated list."
+    },
+    {
+      "file": "subdomainenum/tools/tool_runner.py",
+      "line": 12,
+      "title": "run_tool() — Subprocess Foundation",
+      "description": "`run_tool()` is the single subprocess wrapper that all tool wrappers call. It handles:\n- Streaming stdout line-by-line via a daemon thread (`_read`)\n- Hard wall-clock timeout via `reader.join(timeout=timeout)`\n- Idle timeout via a 0.5 s polling loop (when `idle_timeout` is set)\n- Partial-result return on timeout — lines collected before the kill are always returned\n- `FileNotFoundError` → `RuntimeError` conversion so wrappers don't need to handle it\n\nAll tool-specific parsing lives in the individual wrapper, not here."
+    },
+    {
+      "file": "subdomainenum/tools/tool_runner.py",
+      "line": 62,
+      "title": "Idle Timeout — Rolling Silence Detection",
+      "description": "When `idle_timeout` is set, a mutable `list[float]` container (`_last_line_time`) holds the timestamp of the last received line. The `_tracking_cb` closure updates `_last_line_time[0]` on every line (using a list instead of a bare `float` so the inner closure can mutate it without `nonlocal`).\n\nThe polling loop (line 91) wakes every 0.5 s and checks two conditions:\n- `now - _last_line_time[0] >= idle_timeout` → silence threshold crossed\n- `now - _start >= timeout` → hard ceiling hit\n\nThis solves the amass stall: amass can run for 10 minutes as long as it keeps emitting output, but is killed 120 s after the last line."
+    },
+    {
+      "file": "subdomainenum/tools/amass.py",
+      "line": 12,
+      "title": "amass v4 Output Parser",
+      "description": "amass v4 changed its output format from plain FQDNs to a graph-relationship format:\n\n```\nsub.example.com (FQDN) --> a_record --> 1.2.3.4 (IPAddress)\n```\n\n`_AMASS_FQDN_RE` matches only left-hand FQDNs tagged `(FQDN)`. The domain suffix filter (`fqdn == domain or fqdn.endswith(suffix)`) drops external nodes like nameservers that appear on the right-hand side.\n\n**Gotcha**: `_ANSI_ESCAPE_RE` strips terminal colour codes that some amass builds emit when they detect a TTY-like environment."
+    },
+    {
+      "file": "subdomainenum/tools/amass.py",
+      "line": 49,
+      "title": "run_amass() — Brute Force + Idle Timeout Defaults",
+      "description": "`run_amass()` is the only wrapper that passes `idle_timeout` to `run_tool()`. Defaults are deliberately conservative: `idle_timeout=120` (kill after 2 min silence) and `timeout=600` (hard ceiling 10 min).\n\nBrute-force (`-brute -w <wordlist>`) is only appended when **both** the mode is active/all **and** a wordlist was provided (line 80). Passive amass runs never use `-active` or `-brute`."
+    },
+    {
+      "file": "subdomainenum/dns_utils.py",
+      "line": 9,
+      "title": "DNS Resolution — Never Raises",
+      "description": "`resolve_ips()` queries both A and AAAA records in one pass. It catches all dnspython exception types (`NXDOMAIN`, `NoAnswer`, `NoNameservers`, `Timeout`, `DNSException`) and silently returns `[]`.\n\nThis design choice propagates through the system: `Status.DEAD` and `Status.TIMEOUT` are set by callers based on empty return values, not by exception handling. The resolver is never the source of a crash."
+    },
+    {
+      "file": "subdomainenum/assessor.py",
+      "line": 187,
+      "title": "Parallel DNS Resolution",
+      "description": "`_resolve_all()` fans out to up to 50 worker threads using `ThreadPoolExecutor.map()`. The limit of 50 is intentional — more workers tend to overwhelm the local resolver or the upstream nameserver.\n\nResults are sorted alphabetically by FQDN before being returned, so the report is deterministic regardless of completion order."
+    },
+    {
+      "file": "subdomainenum/verdict.py",
+      "line": 41,
+      "title": "Verdict — Pure Count Summary",
+      "description": "`build_verdict()` is a pure function: no I/O, no state, no side effects. It walks the `EnumReport` and counts subdomains by status, sources by success/failure, and vhosts.\n\nNotably there is no scoring, severity rating, or pass/fail logic — the tool surfaces facts, not judgements. If you want to add scoring, this is the single place to do it."
+    },
+    {
+      "file": "subdomainenum/debug_logger.py",
+      "line": 15,
+      "title": "DebugLogger — Thread-Safe Callback Collector",
+      "description": "`DebugLogger` collects `debug_cb` / `cmd_cb` / `finish_cb` calls from concurrent tool wrappers and serialises them behind a `threading.Lock`. It is instantiated in `cli.py` only when `--debug-log` is active and is never imported by `assessor.py` — the boundary is enforced through callbacks, not direct references.\n\n**Gotcha**: Because passive sources run concurrently, the order in which sources appear in the log file is non-deterministic. `_order` preserves insertion order (first `add_line` or `set_command` call wins), so the log reflects actual execution timing."
+    },
+    {
+      "title": "What to read next",
+      "description": "You can now follow any scan end to end:\n\n1. **Add a passive source** → `assessor.py:_run_passive` + new file in `tools/`\n2. **Add an active tool** → `assessor.py:_run_active` + `constants.py:ACTIVE_TOOLS` + new wrapper\n3. **Change output format** → `reporter.py` + `cli.py:_save_report`\n4. **Tests** → `tests/tools/test_tool_runner.py` for the subprocess layer; `tests/test_assessor.py` for orchestration; `tests/tools/test_wrappers.py` for individual wrappers\n\nEvery external call (`subprocess`, DNS, HTTP) is isolated behind a boundary that tests mock at — you never need a real network to run the suite."
+    }
+  ]
+}

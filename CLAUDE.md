@@ -138,6 +138,25 @@ If the test count changed, update **both** occurrences in `README.md`:
 
 Also update the count in **this file** (`CLAUDE.md`) under "Testing Conventions".
 
+## Code Tours
+
+The `.tours/` directory contains CodeTour walkthroughs (VS Code / JetBrains extension). Tours are checked into the repo and should stay accurate.
+
+**When to update a tour:**
+- Adding or removing a passive or active source
+- Changing the public `assess()` signature or its phase structure
+- Reorganising the `tools/` directory
+- Changing the request lifecycle (passive → active → DNS order)
+- Adding a major new subsystem (new output format, new debug mechanism, etc.)
+
+**When you do NOT need to update a tour:**
+- Bug fixes or internal refactors that don't move key anchors
+- Line-number drift of a few lines (tours reference landmarks, not exact lines)
+- New tests or documentation that don't affect the runtime call graph
+
+Current tours:
+- `.tours/new-joiner-architecture.tour` — end-to-end request lifecycle for new contributors
+
 ## Version Bumping
 
 When committing a set of changes, bump the version using semver:
