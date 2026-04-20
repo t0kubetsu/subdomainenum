@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from rich.console import Console
+from rich.console import Console, Group
 from rich.table import Table
 from rich import box
 from rich.panel import Panel
@@ -15,6 +15,17 @@ from subdomainenum.models import EnumMode, EnumReport, Status
 from subdomainenum.verdict import build_verdict
 
 _console = Console()
+
+
+_SECTION_PANEL_KWARGS = dict(style="white", padding=(0, 1))
+_TABLE_KWARGS = dict(
+    box=box.ROUNDED,
+    show_header=True,
+    header_style="bold white",
+    border_style="dim",
+    expand=False,
+    padding=(0, 1),
+)
 
 
 # ---------------------------------------------------------------------------
@@ -38,7 +49,7 @@ def to_dict(report: EnumReport) -> dict:
                 "status": s.status.value,
                 "alive": s.alive,
                 "ip_addresses": s.ip_addresses,
-                "sources": s.sources,
+                "tools": s.tools,
             }
             for s in report.subdomains
         ],
@@ -50,15 +61,16 @@ def to_dict(report: EnumReport) -> dict:
             }
             for v in report.vhosts
         ],
-        "sources": [
+        "tools": [
             {
-                "name": s.name,
-                "count": len(s.subdomains),
-                "available": s.available,
-                "error": s.error,
-                "mode": s.mode.value if s.mode is not None else None,
+                "name": t.name,
+                "count": len(t.subdomains),
+                "available": t.available,
+                "error": t.error,
+                "timed_out": t.timed_out,
+                "mode": t.mode.value if t.mode is not None else None,
             }
-            for s in report.sources
+            for t in report.tools
         ],
     }
 
@@ -90,59 +102,112 @@ def print_report(report: EnumReport, *, console: Console | None = None) -> None:
     con = console or _console
     verdict = build_verdict(report)
 
-    # Header
-    con.print(Panel(
-        f"[bold cyan]Subdomain Enumeration[/bold cyan]  ·  [white]{report.domain}[/white]"
-        f"  ·  mode: [yellow]{report.mode.value}[/yellow]",
-        box=box.ROUNDED,
-        expand=False,
-    ))
+    # Header rule
+    con.rule(f"[bold cyan]Subdomain Enumeration Report — {report.domain}[/bold cyan]")
+    con.print(f"  [dim]mode:[/dim] [yellow]{report.mode.value}[/yellow]", highlight=False)
+    con.print()
 
-    # Subdomains table
+    # Subdomains section
     if report.subdomains:
-        sub_table = Table(
-            "FQDN", "Status", "IP Addresses", "Sources",
-            box=box.SIMPLE_HEAD,
-            highlight=True,
-        )
+        sub_table = Table(**_TABLE_KWARGS)
+        sub_table.add_column("FQDN", style="cyan", no_wrap=True)
+        sub_table.add_column("Status", min_width=8, no_wrap=True)
+        sub_table.add_column("IP Addresses")
+        sub_table.add_column("Tools", style="dim")
         for s in report.subdomains:
             sub_table.add_row(
                 s.fqdn,
                 Text(s.status.value, style=_status_style(s.status)),
                 ", ".join(s.ip_addresses) or "—",
-                ", ".join(s.sources),
+                ", ".join(s.tools),
             )
-        con.print(sub_table)
+        con.print(Panel(
+            sub_table,
+            title="[bold]Subdomains[/bold]",
+            **_SECTION_PANEL_KWARGS,
+        ))
     else:
-        con.print("[dim]No subdomains found.[/dim]")
+        con.print(Panel(
+            "[dim]No subdomains found.[/dim]",
+            title="[bold]Subdomains[/bold]",
+            **_SECTION_PANEL_KWARGS,
+        ))
 
-    # Vhosts table
+    # Vhosts section
     if report.vhosts:
-        con.print("\n[bold]Virtual Hosts (ffuf)[/bold]")
-        vh_table = Table("Host", "Status Code", "Content-Length", box=box.SIMPLE_HEAD)
+        vh_table = Table(**_TABLE_KWARGS)
+        vh_table.add_column("Host", style="cyan", no_wrap=True)
+        vh_table.add_column("Status Code", justify="right", min_width=5)
+        vh_table.add_column("Content-Length", justify="right", min_width=7)
         for v in report.vhosts:
             vh_table.add_row(v.vhost, str(v.status_code), str(v.content_length))
-        con.print(vh_table)
+        con.print(Panel(
+            vh_table,
+            title="[bold]Virtual Hosts (ffuf)[/bold]",
+            **_SECTION_PANEL_KWARGS,
+        ))
 
-    # Sources summary table
-    if report.sources:
-        con.print("\n[bold]Sources[/bold]")
+    # Tools section
+    if report.tools:
         show_mode = report.mode == EnumMode.ALL
-        columns = ["Source", "Found", "Available", "Error"]
+        tool_table = Table(**_TABLE_KWARGS)
+        tool_table.add_column("Tool", style="cyan", no_wrap=True)
         if show_mode:
-            columns.insert(1, "Mode")
-        src_table = Table(*columns, box=box.SIMPLE_HEAD)
-        for s in report.sources:
-            avail = "[green]yes[/green]" if s.available else "[red]no[/red]"
+            tool_table.add_column("Mode", style="dim", no_wrap=True)
+        tool_table.add_column("Found", justify="right", min_width=5)
+        tool_table.add_column("Available", justify="center", min_width=9)
+        tool_table.add_column("Timed Out", justify="center", min_width=9)
+        tool_table.add_column("Error", style="dim")
+        for t in report.tools:
+            avail = "[green]yes[/green]" if t.available else "[red]no[/red]"
+            timeout_cell = "[yellow]yes[/yellow]" if t.timed_out else ""
+            row = [t.name]
             if show_mode:
-                mode_text = s.mode.value if s.mode is not None else "—"
-                src_table.add_row(s.name, mode_text, str(len(s.subdomains)), avail, s.error or "")
-            else:
-                src_table.add_row(s.name, str(len(s.subdomains)), avail, s.error or "")
-        con.print(src_table)
+                row.append(t.mode.value if t.mode is not None else "—")
+            row += [str(len(t.subdomains)), avail, timeout_cell, t.error or ""]
+            tool_table.add_row(*row)
+        con.print(Panel(
+            tool_table,
+            title="[bold]Tools[/bold]",
+            **_SECTION_PANEL_KWARGS,
+        ))
 
-    # Verdict summary line
-    con.print(Panel(verdict.summary_line, title="Summary", box=box.ROUNDED, expand=False))
+    # Summary panel (counts only — no grading)
+    summary_text = Text.from_markup(f"[bold]{verdict.summary_line}[/bold]")
+    breakdown = Table(box=box.SIMPLE, show_header=False, expand=False, padding=(0, 1))
+    breakdown.add_column(style="dim", no_wrap=True)
+    breakdown.add_column()
+    breakdown.add_row(
+        "Subdomains",
+        f"{verdict.total_subdomains} total · "
+        f"[green]{verdict.alive} alive[/green] · "
+        f"[red]{verdict.dead} dead[/red] · "
+        f"[yellow]{verdict.timeouts} timeout(s)[/yellow]",
+    )
+    if verdict.vhosts_found:
+        breakdown.add_row("Vhosts", f"{verdict.vhosts_found} discovered")
+    tools_total = verdict.tools_ran + verdict.tools_failed + verdict.tools_timed_out
+    breakdown.add_row(
+        "Tools",
+        f"{tools_total} total · "
+        f"[green]{verdict.tools_ran} ran[/green] · "
+        f"[red]{verdict.tools_failed} failed[/red] · "
+        f"[yellow]{verdict.tools_timed_out} timed out[/yellow]",
+    )
+    if verdict.tools_available:
+        breakdown.add_row("Available", ", ".join(verdict.tools_available))
+    if verdict.tools_missing:
+        breakdown.add_row("Missing", ", ".join(verdict.tools_missing))
+
+    con.print(Panel(
+        Group(summary_text, breakdown),
+        title="Summary",
+        border_style="white",
+        expand=False,
+        padding=(0, 1),
+    ))
+
+    con.rule("[dim]End of Report[/dim]")
 
 
 def save_report(report: EnumReport, path: str | Path) -> None:

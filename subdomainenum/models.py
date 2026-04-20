@@ -1,6 +1,6 @@
 """Shared result dataclasses and enums for subdomainenum.
 
-Every source and check function returns one of the typed objects defined here.
+Every tool and check function returns one of the typed objects defined here.
 :class:`EnumReport` is the top-level aggregate returned by
 :func:`subdomainenum.assessor.assess`.
 """
@@ -14,12 +14,12 @@ from enum import Enum
 class Status(str, Enum):
     """Resolution / liveness status for a discovered subdomain.
 
-    - ``FOUND``     – discovered by at least one source; DNS not yet resolved.
+    - ``FOUND``     – discovered by at least one tool; DNS not yet resolved.
     - ``ALIVE``     – resolves to at least one IP address.
     - ``DEAD``      – DNS lookup returned NXDOMAIN or empty answer.
     - ``TIMEOUT``   – DNS resolution timed out.
     - ``ERROR``     – unexpected error during resolution.
-    - ``NOT_FOUND`` – explicitly absent (used internally by sources).
+    - ``NOT_FOUND`` – explicitly absent (used internally by tools).
     - ``SKIPPED``   – step was intentionally skipped.
     """
 
@@ -35,9 +35,9 @@ class Status(str, Enum):
 class EnumMode(str, Enum):
     """Enumeration strategy mode.
 
-    - ``passive`` – only passive sources (subfinder, amass, findomain, assetfinder, dnsrecon passive, …).
-    - ``active``  – only active sources (dnsrecon brute-force, gobuster dns, wfuzz vhost fuzzing).
-    - ``all``     – run both passive and active sources.
+    - ``passive`` – only passive tools (subfinder, amass, findomain, assetfinder, dnsrecon passive, …).
+    - ``active``  – only active tools (dnsrecon brute-force, gobuster dns, wfuzz vhost fuzzing).
+    - ``all``     – run both passive and active tools.
     """
 
     PASSIVE = "passive"
@@ -52,7 +52,7 @@ class SubdomainResult:
     :param fqdn: Fully-qualified domain name (e.g. ``"mail.example.com"``).
     :param status: Resolution / liveness status.
     :param ip_addresses: Resolved A/AAAA addresses, or empty list.
-    :param sources: Names of the sources that found this subdomain.
+    :param tools: Names of the tools that found this subdomain.
     :param alive: ``True`` if at least one IP resolved; ``False`` if NXDOMAIN;
         ``None`` if resolution was not attempted yet.
     """
@@ -60,7 +60,7 @@ class SubdomainResult:
     fqdn: str
     status: Status = Status.FOUND
     ip_addresses: list[str] = field(default_factory=list)
-    sources: list[str] = field(default_factory=list)
+    tools: list[str] = field(default_factory=list)
     alive: bool | None = None
 
 
@@ -79,14 +79,14 @@ class VhostResult:
 
 
 @dataclass
-class SourceResult:
-    """Result of a single enumeration source run.
+class ToolResult:
+    """Result of a single enumeration tool run.
 
-    :param name: Short identifier for the source (e.g. ``"subfinder"``, ``"dnsrecon"``).
-    :param subdomains: FQDNs discovered by this source.
-    :param error: Error message if the source failed; ``None`` on success.
+    :param name: Short identifier for the tool (e.g. ``"subfinder"``, ``"dnsrecon"``).
+    :param subdomains: FQDNs discovered by this tool.
+    :param error: Error message if the tool failed; ``None`` on success.
     :param available: ``False`` when the required binary or API was unavailable.
-    :param mode: Enumeration mode this source was run in (``passive`` or ``active``),
+    :param mode: Enumeration mode this tool was run in (``passive`` or ``active``),
         or ``None`` when not categorised.
     """
 
@@ -106,11 +106,11 @@ class EnumReport:
     :param mode: Enumeration mode used (passive / active / all).
     :param subdomains: Deduplicated list of discovered subdomains with resolution data.
     :param vhosts: Virtual hosts discovered via HTTP fuzzing.
-    :param sources: Per-source result objects including raw counts.
+    :param tools: Per-tool result objects including raw counts.
     """
 
     domain: str
     mode: EnumMode = EnumMode.ALL
     subdomains: list[SubdomainResult] = field(default_factory=list)
     vhosts: list[VhostResult] = field(default_factory=list)
-    sources: list[SourceResult] = field(default_factory=list)
+    tools: list[ToolResult] = field(default_factory=list)

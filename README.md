@@ -13,7 +13,7 @@ $ subdomainenum check example.com
 ```
 
 ![Python](https://img.shields.io/badge/python-%3E%3D3.11-blue)
-![Tests](https://img.shields.io/badge/tests-313%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-322%20passing-brightgreen)
 ![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen)
 ![License](https://img.shields.io/badge/license-GPLv3-lightgrey)
 
@@ -210,15 +210,15 @@ print(report.mode.value)   # "passive"
 
 # Subdomains
 for sub in report.subdomains:
-    print(sub.fqdn, sub.status.value, sub.ip_addresses, sub.sources)
+    print(sub.fqdn, sub.status.value, sub.ip_addresses, sub.tools)
 
 # Virtual hosts (wfuzz, only in active/all mode with --url)
 for vhost in report.vhosts:
     print(vhost.vhost, vhost.status_code, vhost.content_length)
 
-# Per-source results
-for src in report.sources:
-    print(src.name, len(src.subdomains), src.available, src.error)
+# Per-tool results
+for tool in report.tools:
+    print(tool.name, len(tool.subdomains), tool.available, tool.error)
 ```
 
 `Status` values: `ALIVE`, `DEAD`, `TIMEOUT`, `ERROR`, `FOUND`, `NOT_FOUND`, `SKIPPED`.
@@ -233,6 +233,18 @@ from subdomainenum.reporter import to_dict
 report = assess("example.com")
 print(json.dumps(to_dict(report), indent=2))
 ```
+
+Top-level schema:
+
+| Key | Type | Notes |
+|---|---|---|
+| `domain` | string | Target base domain |
+| `mode` | string | `"passive"`, `"active"`, or `"all"` |
+| `subdomains[]` | array | `{fqdn, status, alive, ip_addresses, tools}` |
+| `vhosts[]` | array | `{vhost, status_code, content_length}` |
+| `tools[]` | array | `{name, count, available, error, timed_out, mode}` |
+
+Each `tools[]` entry reflects the lifecycle of one tool run: `available=false` means the binary or API was missing; `timed_out=true` means the tool was killed by the wall-clock or idle-timeout watchdog (distinct from `error`); `error` is a string when the tool raised or reported an error, otherwise `null`.
 
 ---
 
@@ -274,7 +286,7 @@ subdomainenum/
 ├── subdomainenum/
 │   ├── __init__.py              Package version
 │   ├── models.py                Dataclasses: SubdomainResult, VhostResult,
-│   │                              SourceResult, EnumReport + Status/EnumMode enums
+│   │                              ToolResult, EnumReport + Status/EnumMode enums
 │   ├── dns_utils.py             resolve_ips(), is_alive() — dnspython wrappers
 │   ├── constants.py             ACTIVE_TOOLS registry, detect_tools(), get_install_hint()
 │   ├── assessor.py              assess() — orchestrates passive + active sources
@@ -330,7 +342,7 @@ pytest tests/test_assessor.py -v
 pytest tests/test_cli.py::TestCheckCommand -v
 ```
 
-The test suite has **313 tests** and achieves **100% coverage** across all modules.
+The test suite has **322 tests** and achieves **100% coverage** across all modules.
 
 All DNS I/O (`dns.resolver.Resolver.resolve`), TLS
 sockets, and subprocess calls are mocked at the boundary — no test touches a real

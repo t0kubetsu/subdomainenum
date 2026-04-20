@@ -74,10 +74,10 @@ tests/
 - Test class naming: `TestRunTool`, `TestQueryCrtSh`, `TestAssess`, etc. (class-per-feature)
 - AAA pattern: Arrange → Act → Assert in every test method
 - Coverage target: ≥ 80% (configured in `pyproject.toml`)
-- Current test count: **313 tests**
+- Current test count: **322 tests**
 
 ## Adding a New Passive Source
-1. Add a `query_<name>(domain) → SourceResult` function directly in `assessor.py` or a new helper module
+1. Add a `query_<name>(domain) → ToolResult` function directly in `assessor.py` or a new helper module
 2. Import and add it to the passive sources list in `assessor.py`
 3. Wire `debug_cb` if the source is streaming
 4. Write tests in `tests/test_assessor.py` or a dedicated file
@@ -117,7 +117,7 @@ Environment variables for wordlist paths: `DEFAULT_DNS_WORDLIST`, `DEFAULT_VHOST
 - Snake_case for all files, functions, and variables
 - Sphinx-style docstrings: `:param name:`, `:returns:`, `:rtype:` (no `:type:` — type annotations on signatures are sufficient)
 - Conventional commits: `fix:`, `feat:`, `fix(scope):`, `refactor:`, `test:`, `docs:`
-- All external calls (subprocess, HTTP, TLS, DNS) are wrapped to never raise — errors captured in `SourceResult.error`
+- All external calls (subprocess, HTTP, TLS, DNS) are wrapped to never raise — errors captured in `ToolResult.error`
 - No CI config currently present
 
 ## Before Every Commit

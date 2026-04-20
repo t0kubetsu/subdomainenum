@@ -6,7 +6,7 @@ from __future__ import annotations
 from subdomainenum.models import (
     EnumMode,
     EnumReport,
-    SourceResult,
+    ToolResult,
     Status,
     SubdomainResult,
     VhostResult,
@@ -58,7 +58,7 @@ class TestSubdomainResult:
         assert r.fqdn == "sub.example.com"
         assert r.status == Status.FOUND
         assert r.ip_addresses == []
-        assert r.sources == []
+        assert r.tools == []
         assert r.alive is None
 
     def test_full_construction(self) -> None:
@@ -66,12 +66,12 @@ class TestSubdomainResult:
             fqdn="sub.example.com",
             status=Status.ALIVE,
             ip_addresses=["1.2.3.4"],
-            sources=["dnsrecon", "subfinder"],
+            tools=["dnsrecon", "subfinder"],
             alive=True,
         )
         assert r.alive is True
         assert "1.2.3.4" in r.ip_addresses
-        assert "subfinder" in r.sources
+        assert "subfinder" in r.tools
 
 
 # ---------------------------------------------------------------------------
@@ -96,38 +96,38 @@ class TestVhostResult:
 
 
 # ---------------------------------------------------------------------------
-# SourceResult
+# ToolResult
 # ---------------------------------------------------------------------------
 
 
-class TestSourceResult:
+class TestToolResult:
     def test_minimal_construction(self) -> None:
-        s = SourceResult(name="subfinder")
-        assert s.name == "subfinder"
-        assert s.subdomains == []
-        assert s.error is None
-        assert s.available is True
+        t = ToolResult(name="subfinder")
+        assert t.name == "subfinder"
+        assert t.subdomains == []
+        assert t.error is None
+        assert t.available is True
 
     def test_error_state(self) -> None:
-        s = SourceResult(name="amass", error="binary not found", available=False)
-        assert s.available is False
-        assert s.error == "binary not found"
+        t = ToolResult(name="amass", error="binary not found", available=False)
+        assert t.available is False
+        assert t.error == "binary not found"
 
     def test_subdomains_list(self) -> None:
-        s = SourceResult(name="dnsrecon", subdomains=["a.example.com", "b.example.com"])
-        assert len(s.subdomains) == 2
+        t = ToolResult(name="dnsrecon", subdomains=["a.example.com", "b.example.com"])
+        assert len(t.subdomains) == 2
 
     def test_mode_defaults_to_none(self) -> None:
-        s = SourceResult(name="subfinder")
-        assert s.mode is None
+        t = ToolResult(name="subfinder")
+        assert t.mode is None
 
     def test_mode_passive(self) -> None:
-        s = SourceResult(name="subfinder", mode=EnumMode.PASSIVE)
-        assert s.mode == EnumMode.PASSIVE
+        t = ToolResult(name="subfinder", mode=EnumMode.PASSIVE)
+        assert t.mode == EnumMode.PASSIVE
 
     def test_mode_active(self) -> None:
-        s = SourceResult(name="gobuster", mode=EnumMode.ACTIVE)
-        assert s.mode == EnumMode.ACTIVE
+        t = ToolResult(name="gobuster", mode=EnumMode.ACTIVE)
+        assert t.mode == EnumMode.ACTIVE
 
 
 # ---------------------------------------------------------------------------
@@ -142,7 +142,7 @@ class TestEnumReport:
         assert r.mode == EnumMode.ALL
         assert r.subdomains == []
         assert r.vhosts == []
-        assert r.sources == []
+        assert r.tools == []
 
     def test_with_subdomains(self) -> None:
         subs = [

@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Callable
 
 from subdomainenum.tools.tool_runner import run_tool
-from subdomainenum.models import EnumMode, SourceResult
+from subdomainenum.models import EnumMode, ToolResult
 
 # Passive enumeration types (no wordlist required):
 #   std — SOA, NS, A, AAAA, MX, SRV (standard DNS records)
@@ -32,7 +32,7 @@ def run_dnsrecon(
     disable_check_bindversion: bool = False,
     line_cb: Callable[[str], None] | None = None,
     cmd_cb: Callable[[str], None] | None = None,
-) -> SourceResult:
+) -> ToolResult:
     """Run dnsrecon for *domain* using the enumeration types appropriate for *mode*.
 
     Mode behaviour:
@@ -63,9 +63,9 @@ def run_dnsrecon(
     :param disable_check_bindversion: Pass ``--disable_check_bindversion`` to skip BIND version checks.
     :param line_cb: Optional callback invoked with each output line (debug mode).
     :param cmd_cb: Optional callback invoked once with the full command string before launch.
-    :rtype: SourceResult
+    :rtype: ToolResult
     """
-    result = SourceResult(name="dnsrecon")
+    result = ToolResult(name="dnsrecon")
 
     if mode == EnumMode.PASSIVE:
         types = _PASSIVE_TYPES

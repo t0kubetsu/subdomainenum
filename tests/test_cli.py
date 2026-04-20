@@ -8,7 +8,7 @@ from unittest.mock import patch
 from typer.testing import CliRunner
 
 from subdomainenum.cli import app
-from subdomainenum.models import EnumMode, EnumReport, SourceResult, Status, SubdomainResult
+from subdomainenum.models import EnumMode, EnumReport, ToolResult, Status, SubdomainResult
 
 runner = CliRunner()
 
@@ -18,9 +18,9 @@ def _make_report(domain: str = "example.com") -> EnumReport:
         domain=domain,
         mode=EnumMode.PASSIVE,
         subdomains=[
-            SubdomainResult(fqdn="sub.example.com", status=Status.ALIVE, alive=True, ip_addresses=["1.2.3.4"], sources=["dnsrecon"]),
+            SubdomainResult(fqdn="sub.example.com", status=Status.ALIVE, alive=True, ip_addresses=["1.2.3.4"], tools=["dnsrecon"]),
         ],
-        sources=[SourceResult(name="dnsrecon", subdomains=["sub.example.com"], available=True)],
+        tools=[ToolResult(name="dnsrecon", subdomains=["sub.example.com"], available=True)],
     )
 
 

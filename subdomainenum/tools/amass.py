@@ -6,7 +6,7 @@ import re
 from typing import Callable
 
 from subdomainenum.tools.tool_runner import run_tool
-from subdomainenum.models import EnumMode, SourceResult
+from subdomainenum.models import EnumMode, ToolResult
 
 # amass v4 outputs relationship lines: "<entity> (<type>) --> <relation> --> <entity> (<type>)"
 _AMASS_FQDN_RE = re.compile(r"^(\S+)\s+\(FQDN\)\s+-->")
@@ -55,8 +55,8 @@ def run_amass(
     idle_timeout: int = 120,
     line_cb: Callable[[str], None] | None = None,
     cmd_cb: Callable[[str], None] | None = None,
-) -> SourceResult:
-    """Run amass for *domain* and return a :class:`~subdomainenum.models.SourceResult`.
+) -> ToolResult:
+    """Run amass for *domain* and return a :class:`~subdomainenum.models.ToolResult`.
 
     :param domain: Target base domain.
     :param mode: Enumeration mode.  When ``active`` or ``all``, ``-active`` is
@@ -71,9 +71,9 @@ def run_amass(
         Prevents the common case where amass stalls indefinitely without output.
     :param line_cb: Optional callback invoked with each output line (for debug mode).
     :param cmd_cb: Optional callback invoked once with the full command string before launch.
-    :rtype: SourceResult
+    :rtype: ToolResult
     """
-    result = SourceResult(name="amass")
+    result = ToolResult(name="amass")
     cmd = ["amass", "enum", "-d", domain]
     if mode in (EnumMode.ACTIVE, EnumMode.ALL):
         cmd.append("-active")

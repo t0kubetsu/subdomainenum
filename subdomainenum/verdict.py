@@ -19,8 +19,14 @@ class VerdictSummary:
     :param dead: Subdomains that returned NXDOMAIN or empty answer.
     :param timeouts: Subdomains for which DNS resolution timed out.
     :param vhosts_found: Virtual hosts discovered via HTTP fuzzing.
-    :param sources_ran: Number of sources that ran successfully (available=True, no error).
-    :param sources_failed: Number of sources that failed (unavailable binary or request error).
+    :param tools_ran: Number of tools that ran to completion without error or timeout
+        (``available=True``, ``error is None``, ``timed_out=False``).
+    :param tools_failed: Number of tools that failed — unavailable binary or wrapper
+        error. Takes precedence over ``tools_timed_out`` when both conditions hold.
+    :param tools_timed_out: Number of tools that were killed due to timeout but
+        otherwise ran (``available=True``, ``error is None``, ``timed_out=True``).
+        Combined with ``tools_ran`` and ``tools_failed``, the three counts partition
+        ``len(report.tools)``.
     :param tools_available: Names of available external tools.
     :param tools_missing: Names of requested tools that were not found on the system.
     :param summary_line: Single human-readable summary string.
@@ -31,8 +37,9 @@ class VerdictSummary:
     dead: int = 0
     timeouts: int = 0
     vhosts_found: int = 0
-    sources_ran: int = 0
-    sources_failed: int = 0
+    tools_ran: int = 0
+    tools_failed: int = 0
+    tools_timed_out: int = 0
     tools_available: list[str] = field(default_factory=list)
     tools_missing: list[str] = field(default_factory=list)
     summary_line: str = ""
@@ -49,11 +56,18 @@ def build_verdict(report: EnumReport) -> VerdictSummary:
     dead = sum(1 for s in report.subdomains if s.status == Status.DEAD)
     timeouts = sum(1 for s in report.subdomains if s.status == Status.TIMEOUT)
 
-    sources_ran = sum(1 for s in report.sources if s.available and s.error is None)
-    sources_failed = sum(1 for s in report.sources if not s.available or s.error is not None)
+    tools_failed = sum(1 for t in report.tools if not t.available or t.error is not None)
+    tools_timed_out = sum(
+        1 for t in report.tools
+        if t.timed_out and t.available and t.error is None
+    )
+    tools_ran = sum(
+        1 for t in report.tools
+        if t.available and t.error is None and not t.timed_out
+    )
 
-    tools_available = [s.name for s in report.sources if s.available]
-    tools_missing = [s.name for s in report.sources if not s.available]
+    tools_available = [t.name for t in report.tools if t.available]
+    tools_missing = [t.name for t in report.tools if not t.available]
 
     total = len(report.subdomains)
     vhosts_found = len(report.vhosts)
@@ -63,7 +77,6 @@ def build_verdict(report: EnumReport) -> VerdictSummary:
         parts.append(f"({alive} alive, {dead} dead, {timeouts} timeout{'s' if timeouts != 1 else ''})")
     if vhosts_found:
         parts.append(f"· {vhosts_found} vhost{'s' if vhosts_found != 1 else ''}")
-    parts.append(f"via {sources_ran} source{'s' if sources_ran != 1 else ''}")
 
     return VerdictSummary(
         total_subdomains=total,
@@ -71,8 +84,9 @@ def build_verdict(report: EnumReport) -> VerdictSummary:
         dead=dead,
         timeouts=timeouts,
         vhosts_found=vhosts_found,
-        sources_ran=sources_ran,
-        sources_failed=sources_failed,
+        tools_ran=tools_ran,
+        tools_failed=tools_failed,
+        tools_timed_out=tools_timed_out,
         tools_available=tools_available,
         tools_missing=tools_missing,
         summary_line=" ".join(parts),

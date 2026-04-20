@@ -7,7 +7,7 @@ from io import StringIO
 
 from rich.console import Console
 
-from subdomainenum.models import EnumMode, EnumReport, SourceResult, Status, SubdomainResult, VhostResult
+from subdomainenum.models import EnumMode, EnumReport, ToolResult, Status, SubdomainResult, VhostResult
 from subdomainenum.reporter import print_report, save_report, to_dict
 
 
@@ -16,15 +16,15 @@ def _make_report() -> EnumReport:
         domain="example.com",
         mode=EnumMode.ALL,
         subdomains=[
-            SubdomainResult(fqdn="sub.example.com", status=Status.ALIVE, alive=True, ip_addresses=["1.2.3.4"], sources=["dnsrecon"]),
+            SubdomainResult(fqdn="sub.example.com", status=Status.ALIVE, alive=True, ip_addresses=["1.2.3.4"], tools=["dnsrecon"]),
             SubdomainResult(fqdn="dead.example.com", status=Status.DEAD, alive=False),
         ],
         vhosts=[
             VhostResult(vhost="admin.example.com", status_code=200, content_length=512),
         ],
-        sources=[
-            SourceResult(name="dnsrecon", subdomains=["sub.example.com"], available=True, mode=EnumMode.PASSIVE),
-            SourceResult(name="amass", available=False, error="not found", mode=EnumMode.ACTIVE),
+        tools=[
+            ToolResult(name="dnsrecon", subdomains=["sub.example.com"], available=True, mode=EnumMode.PASSIVE),
+            ToolResult(name="amass", available=False, error="not found", mode=EnumMode.ACTIVE),
         ],
     )
 
@@ -65,13 +65,13 @@ class TestToDict:
 
     def test_sources_list(self) -> None:
         result = to_dict(_make_report())
-        assert isinstance(result["sources"], list)
-        assert len(result["sources"]) == 2
+        assert isinstance(result["tools"], list)
+        assert len(result["tools"]) == 2
 
     def test_sources_include_mode(self) -> None:
         result = to_dict(_make_report())
-        passive_src = next(s for s in result["sources"] if s["name"] == "dnsrecon")
-        active_src = next(s for s in result["sources"] if s["name"] == "amass")
+        passive_src = next(s for s in result["tools"] if s["name"] == "dnsrecon")
+        active_src = next(s for s in result["tools"] if s["name"] == "amass")
         assert passive_src["mode"] == "passive"
         assert active_src["mode"] == "active"
 
@@ -79,10 +79,10 @@ class TestToDict:
         report = EnumReport(
             domain="example.com",
             mode=EnumMode.PASSIVE,
-            sources=[SourceResult(name="subfinder")],
+            tools=[ToolResult(name="subfinder")],
         )
         result = to_dict(report)
-        assert result["sources"][0]["mode"] is None
+        assert result["tools"][0]["mode"] is None
 
     def test_json_serializable(self) -> None:
         result = to_dict(_make_report())
@@ -115,7 +115,7 @@ class TestPrintReport:
     def test_prints_no_subdomains_message_when_empty(self) -> None:
         buf = StringIO()
         console = Console(file=buf, width=120, highlight=False)
-        report = EnumReport(domain="example.com", mode=EnumMode.PASSIVE, subdomains=[], sources=[])
+        report = EnumReport(domain="example.com", mode=EnumMode.PASSIVE, subdomains=[], tools=[])
         print_report(report, console=console)
         assert "No subdomains found" in buf.getvalue()
 
@@ -134,7 +134,7 @@ class TestPrintReport:
         report = EnumReport(
             domain="example.com",
             mode=EnumMode.PASSIVE,
-            sources=[SourceResult(name="subfinder", mode=EnumMode.PASSIVE)],
+            tools=[ToolResult(name="subfinder", mode=EnumMode.PASSIVE)],
         )
         print_report(report, console=console)
         output = buf.getvalue()
@@ -146,7 +146,7 @@ class TestPrintReport:
         report = EnumReport(
             domain="example.com",
             mode=EnumMode.ACTIVE,
-            sources=[SourceResult(name="gobuster", mode=EnumMode.ACTIVE)],
+            tools=[ToolResult(name="gobuster", mode=EnumMode.ACTIVE)],
         )
         print_report(report, console=console)
         output = buf.getvalue()
@@ -158,12 +158,58 @@ class TestPrintReport:
         report = EnumReport(
             domain="example.com",
             mode=EnumMode.ALL,
-            sources=[SourceResult(name="unknown")],
+            tools=[ToolResult(name="unknown")],
         )
         print_report(report, console=console)
         output = buf.getvalue()
         assert "Mode" in output
         assert "—" in output
+
+    def test_output_contains_header_rule(self) -> None:
+        buf = StringIO()
+        console = Console(file=buf, width=120, highlight=False)
+        print_report(_make_report(), console=console)
+        assert "Subdomain Enumeration Report" in buf.getvalue()
+
+    def test_output_contains_end_of_report(self) -> None:
+        buf = StringIO()
+        console = Console(file=buf, width=120, highlight=False)
+        print_report(_make_report(), console=console)
+        assert "End of Report" in buf.getvalue()
+
+    def test_output_contains_summary_panel(self) -> None:
+        buf = StringIO()
+        console = Console(file=buf, width=120, highlight=False)
+        print_report(_make_report(), console=console)
+        assert "Summary" in buf.getvalue()
+
+    def test_output_contains_vhost_section_title_when_present(self) -> None:
+        buf = StringIO()
+        console = Console(file=buf, width=120, highlight=False)
+        print_report(_make_report(), console=console)
+        assert "Virtual Hosts (ffuf)" in buf.getvalue()
+
+    def test_sources_table_has_timed_out_column(self) -> None:
+        buf = StringIO()
+        console = Console(file=buf, width=200, highlight=False)
+        print_report(_make_report(), console=console)
+        assert "Timed Out" in buf.getvalue()
+
+    def test_sources_timed_out_flag_rendered(self) -> None:
+        buf = StringIO()
+        console = Console(file=buf, width=200, highlight=False)
+        report = EnumReport(
+            domain="example.com",
+            mode=EnumMode.PASSIVE,
+            tools=[
+                ToolResult(name="subfinder", mode=EnumMode.PASSIVE, timed_out=True),
+                ToolResult(name="findomain", mode=EnumMode.PASSIVE, timed_out=False),
+            ],
+        )
+        print_report(report, console=console)
+        output = buf.getvalue()
+        assert "Timed Out" in output
+        assert "yes" in output
 
 
 class TestSaveReport:

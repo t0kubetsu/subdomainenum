@@ -6,7 +6,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 
-from subdomainenum.models import EnumMode, SourceResult, VhostResult
+from subdomainenum.models import EnumMode, ToolResult, VhostResult
 from subdomainenum.tools.amass import _parse_amass_output, run_amass
 from subdomainenum.tools.assetfinder import run_assetfinder
 from subdomainenum.tools.dnsrecon import run_dnsrecon
@@ -34,7 +34,7 @@ class TestRunSubfinder:
     def test_returns_source_result(self) -> None:
         with patch("subdomainenum.tools.subfinder.run_tool", return_value=(["sub.example.com"], False)):
             result = run_subfinder("example.com")
-        assert isinstance(result, SourceResult)
+        assert isinstance(result, ToolResult)
         assert result.name == "subfinder"
 
     def test_command_contains_domain_and_silent(self) -> None:
@@ -155,7 +155,7 @@ class TestRunAmass:
     def test_returns_source_result(self) -> None:
         with patch("subdomainenum.tools.amass.run_tool", return_value=([], False)):
             result = run_amass("example.com")
-        assert isinstance(result, SourceResult)
+        assert isinstance(result, ToolResult)
         assert result.name == "amass"
 
     def test_command_contains_enum_and_domain(self) -> None:
@@ -280,7 +280,7 @@ class TestRunFindomain:
     def test_returns_source_result(self) -> None:
         with patch("subdomainenum.tools.findomain.run_tool", return_value=([], False)):
             result = run_findomain("example.com")
-        assert isinstance(result, SourceResult)
+        assert isinstance(result, ToolResult)
         assert result.name == "findomain"
 
     def test_tool_missing(self) -> None:
@@ -324,7 +324,7 @@ class TestRunAssetfinder:
     def test_returns_source_result(self) -> None:
         with patch("subdomainenum.tools.assetfinder.run_tool", return_value=([], False)):
             result = run_assetfinder("example.com")
-        assert isinstance(result, SourceResult)
+        assert isinstance(result, ToolResult)
         assert result.name == "assetfinder"
 
     def test_tool_missing(self) -> None:
@@ -368,7 +368,7 @@ class TestRunDnsrecon:
     def test_returns_source_result(self) -> None:
         with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)):
             result = run_dnsrecon("example.com", mode=EnumMode.ALL, wordlist="/tmp/words.txt")
-        assert isinstance(result, SourceResult)
+        assert isinstance(result, ToolResult)
         assert result.name == "dnsrecon"
 
     def test_single_invocation(self) -> None:
@@ -605,7 +605,7 @@ class TestRunGobusterDns:
     def test_returns_source_result(self) -> None:
         with patch("subdomainenum.tools.gobuster_dns.run_tool", return_value=([], False)):
             result = run_gobuster_dns("example.com", wordlist="/tmp/words.txt")
-        assert isinstance(result, SourceResult)
+        assert isinstance(result, ToolResult)
         assert result.name == "gobuster"
 
     def test_wordlist_in_command(self) -> None:

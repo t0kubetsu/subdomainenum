@@ -18,8 +18,8 @@
     {
       "file": "subdomainenum/models.py",
       "line": 82,
-      "title": "SourceResult — the universal tool envelope",
-      "description": "`SourceResult` is what every tool wrapper returns regardless of whether it succeeded, failed, timed out, or was simply unavailable. The `available=False` flag is distinct from `error is not None`: a missing binary sets `available=False` while a binary that ran but produced no output leaves `error=None` and `subdomains=[]`.\n\n`timed_out=True` is set separately so the reporter can surface timeout status without treating it as an error."
+      "title": "ToolResult — the universal tool envelope",
+      "description": "`ToolResult` is what every tool wrapper returns regardless of whether it succeeded, failed, timed out, or was simply unavailable. The `available=False` flag is distinct from `error is not None`: a missing binary sets `available=False` while a binary that ran but produced no output leaves `error=None` and `subdomains=[]`.\n\n`timed_out=True` is set separately so the reporter can surface timeout status without treating it as an error."
     },
     {
       "file": "subdomainenum/cli.py",
@@ -37,19 +37,19 @@
       "file": "subdomainenum/assessor.py",
       "line": 222,
       "title": "assess() — Public API",
-      "description": "`assess()` is the library's public surface. It accepts a domain and optional callbacks and returns an `EnumReport`. Nothing inside raises; all errors are captured in `SourceResult.error`.\n\nThe three phases run sequentially:\n1. Passive sources in parallel (`_run_passive`)\n2. Active sources sequentially (`_run_active`)\n3. DNS resolution of deduplicated FQDNs (`_resolve_all`)\n\nActive sources are sequential because brute-force tools are CPU/network saturating — running them in parallel would degrade results."
+      "description": "`assess()` is the library's public surface. It accepts a domain and optional callbacks and returns an `EnumReport`. Nothing inside raises; all errors are captured in `ToolResult.error`.\n\nThe three phases run sequentially:\n1. Passive tools in parallel (`_run_passive`)\n2. Active tools sequentially (`_run_active`)\n3. DNS resolution of deduplicated FQDNs (`_resolve_all`)\n\nActive tools are sequential because brute-force tools are CPU/network saturating — running them in parallel would degrade results."
     },
     {
       "file": "subdomainenum/assessor.py",
       "line": 90,
       "title": "Passive Fan-out — ThreadPoolExecutor",
-      "description": "Five passive sources submit to a `ThreadPoolExecutor` with `max_workers=5` (one per source). `as_completed()` is used instead of `map()` so the progress callback fires as soon as each future resolves rather than waiting for all to finish.\n\n**Gotcha**: The executor catches all exceptions from tool wrappers (line 106) and converts them into `SourceResult(available=False)`. This means a bug in one wrapper cannot abort the entire scan."
+      "description": "Five passive tools submit to a `ThreadPoolExecutor` with `max_workers=5` (one per tool). `as_completed()` is used instead of `map()` so the progress callback fires as soon as each future resolves rather than waiting for all to finish.\n\n**Gotcha**: The executor catches all exceptions from tool wrappers (line 106) and converts them into `ToolResult(available=False)`. This means a bug in one wrapper cannot abort the entire scan."
     },
     {
       "file": "subdomainenum/assessor.py",
       "line": 276,
-      "title": "Deduplication + Source Attribution",
-      "description": "`fqdn_sources` is built by iterating over all `SourceResult.subdomains` lists and accumulating which sources found each FQDN. A set-like deduplication happens here — the same FQDN from two sources results in one `SubdomainResult` with `sources=[\"subfinder\", \"amass\"]`.\n\nThis dict is the only place where per-source data is merged. Downstream (reporter, verdict) only sees the deduplicated list."
+      "title": "Deduplication + Tool Attribution",
+      "description": "`fqdn_sources` is built by iterating over all `ToolResult.subdomains` lists and accumulating which tools found each FQDN. A set-like deduplication happens here — the same FQDN from two tools results in one `SubdomainResult` with `tools=[\"subfinder\", \"amass\"]`.\n\nThis dict is the only place where per-tool data is merged. Downstream (reporter, verdict) only sees the deduplicated list."
     },
     {
       "file": "subdomainenum/tools/tool_runner.py",

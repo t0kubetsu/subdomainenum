@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Callable
 
 from subdomainenum.tools.tool_runner import run_tool
-from subdomainenum.models import SourceResult
+from subdomainenum.models import ToolResult
 
 
 def run_gobuster_dns(
@@ -16,7 +16,7 @@ def run_gobuster_dns(
     timeout: int = 300,
     line_cb: Callable[[str], None] | None = None,
     cmd_cb: Callable[[str], None] | None = None,
-) -> SourceResult:
+) -> ToolResult:
     """Run gobuster dns brute-force for *domain*.
 
     :param domain: Target base domain.
@@ -25,9 +25,9 @@ def run_gobuster_dns(
     :param timeout: Maximum seconds to wait for gobuster.
     :param line_cb: Optional callback invoked with each output line (for debug mode).
     :param cmd_cb: Optional callback invoked once with the full command string before launch.
-    :rtype: SourceResult
+    :rtype: ToolResult
     """
-    result = SourceResult(name="gobuster")
+    result = ToolResult(name="gobuster")
     cmd = [
         "gobuster", "dns",
         "--domain", domain,

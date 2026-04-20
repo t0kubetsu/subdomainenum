@@ -100,10 +100,13 @@ def run_tool(
 
     if reader.is_alive():
         proc.kill()
-        if proc.stdout:
-            proc.stdout.close()
-        reader.join(2)  # let reader drain after process death (EOF arrives quickly)
-        return list(lines), True  # return partial results collected before the timeout
+        # Do NOT close proc.stdout here: the reader thread is still iterating it
+        # and an explicit close races with `for raw_line in proc.stdout`, raising
+        # ValueError("I/O operation on closed file"). After SIGKILL the kernel
+        # tears down the child's fds, closing the pipe's write end → the reader's
+        # loop sees EOF and exits cleanly.
+        reader.join(2)
+        return list(lines), True  # partial results collected before the timeout
 
     proc.wait()
 

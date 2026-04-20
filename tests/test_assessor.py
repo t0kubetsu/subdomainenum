@@ -7,11 +7,11 @@ from unittest.mock import patch
 import pytest
 
 from subdomainenum.assessor import assess, _run_passive, _run_active, _resolve_all
-from subdomainenum.models import EnumMode, EnumReport, SourceResult, Status, SubdomainResult
+from subdomainenum.models import EnumMode, EnumReport, ToolResult, Status, SubdomainResult
 
 
-def _make_source(*fqdns: str, name: str = "subfinder", available: bool = True) -> SourceResult:
-    return SourceResult(name=name, subdomains=list(fqdns), available=available)
+def _make_source(*fqdns: str, name: str = "subfinder", available: bool = True) -> ToolResult:
+    return ToolResult(name=name, subdomains=list(fqdns), available=available)
 
 
 class TestAssess:
@@ -126,7 +126,7 @@ class TestAssess:
             patch("subdomainenum.assessor._resolve_all", return_value=[]),
         ):
             report = assess("example.com", mode=EnumMode.PASSIVE)
-        assert any(s.name == "subfinder" for s in report.sources)
+        assert any(s.name == "subfinder" for s in report.tools)
 
     def test_active_wordlist_required_raises(self) -> None:
         with pytest.raises(ValueError, match="wordlist"):
@@ -354,7 +354,7 @@ class TestRunPassive:
         assert all(r.mode == EnumMode.PASSIVE for r in results)
 
     def test_exception_source_has_mode_passive(self) -> None:
-        """Sources that raise exceptions still get mode=EnumMode.PASSIVE in the error SourceResult."""
+        """Sources that raise exceptions still get mode=EnumMode.PASSIVE in the error ToolResult."""
         src = _make_source()
         with (
             patch("subdomainenum.assessor.run_subfinder", side_effect=RuntimeError("boom")),
@@ -518,7 +518,7 @@ class TestRunActive:
         assert mock_amass.call_args.kwargs.get("mode") == EnumMode.ACTIVE
 
     def test_active_sources_have_mode_active(self) -> None:
-        """All SourceResults returned by _run_active have mode=EnumMode.ACTIVE stamped."""
+        """All ToolResults returned by _run_active have mode=EnumMode.ACTIVE stamped."""
         src = _make_source()
         with (
             patch("subdomainenum.assessor.run_amass", return_value=src),
@@ -529,7 +529,7 @@ class TestRunActive:
         assert all(s.mode == EnumMode.ACTIVE for s in sources)
 
     def test_ffuf_source_with_urls_has_mode_active(self) -> None:
-        """ffuf SourceResult created when urls are provided has mode=EnumMode.ACTIVE."""
+        """ffuf ToolResult created when urls are provided has mode=EnumMode.ACTIVE."""
         src = _make_source()
         with (
             patch("subdomainenum.assessor.run_amass", return_value=src),
@@ -544,7 +544,7 @@ class TestRunActive:
         assert ffuf_src.mode == EnumMode.ACTIVE
 
     def test_ffuf_source_without_urls_has_mode_active(self) -> None:
-        """ffuf SourceResult created when urls is empty (skipped branch) has mode=EnumMode.ACTIVE."""
+        """ffuf ToolResult created when urls is empty (skipped branch) has mode=EnumMode.ACTIVE."""
         src = _make_source()
         with (
             patch("subdomainenum.assessor.run_amass", return_value=src),

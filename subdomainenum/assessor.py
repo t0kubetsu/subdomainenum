@@ -1,4 +1,4 @@
-"""High-level enumeration API – orchestrates all passive and active sources.
+"""High-level enumeration API – orchestrates all passive and active tools.
 
 Typical usage::
 
@@ -24,7 +24,7 @@ from subdomainenum.dns_utils import resolve_ips
 from subdomainenum.models import (
     EnumMode,
     EnumReport,
-    SourceResult,
+    ToolResult,
     Status,
     SubdomainResult,
     VhostResult,
@@ -38,21 +38,21 @@ def _run_passive(
     cmd_cb: Callable[[str, str], None] | None = None,
     finish_cb: Callable[[str, str | None, bool], None] | None = None,
     overall_mode: EnumMode | None = None,
-) -> list[SourceResult]:
-    """Run all passive enumeration sources concurrently.
+) -> list[ToolResult]:
+    """Run all passive enumeration tools concurrently.
 
     :param domain: Target base domain.
     :param progress_cb: Optional callback for progress messages.
     :param debug_cb: Optional callback for real-time tool output lines,
-        called as ``debug_cb(source_name, line)``.
-    :param cmd_cb: Optional callback for the command/label that runs each source,
-        called as ``cmd_cb(source_name, cmd_string)``.
-    :param finish_cb: Optional callback called when a source completes,
-        called as ``finish_cb(source_name, error_or_none, timed_out)``.
+        called as ``debug_cb(tool_name, line)``.
+    :param cmd_cb: Optional callback for the command/label that runs each tool,
+        called as ``cmd_cb(tool_name, cmd_string)``.
+    :param finish_cb: Optional callback called when a tool completes,
+        called as ``finish_cb(tool_name, error_or_none, timed_out)``.
     :param overall_mode: The mode passed to :func:`assess`; when ``EnumMode.ALL``
         tools that also run in the active phase use a ``"<name> passive"`` key so
         the debug log shows a distinct section for each phase.
-    :returns: List of :class:`~subdomainenum.models.SourceResult` objects.
+    :returns: List of :class:`~subdomainenum.models.ToolResult` objects.
     """
 
     def _cb(msg: str) -> None:
@@ -65,63 +65,63 @@ def _run_passive(
             return f"{name} passive"
         return name
 
-    def _line_cb(source: str) -> Callable[[str], None] | None:
+    def _line_cb(tool: str) -> Callable[[str], None] | None:
         if debug_cb is None:
             return None
-        key = _key(source)
+        key = _key(tool)
         return lambda line: debug_cb(key, line)
 
-    def _cmd_cb(source: str) -> Callable[[str], None] | None:
+    def _cmd_cb(tool: str) -> Callable[[str], None] | None:
         if cmd_cb is None:
             return None
-        key = _key(source)
+        key = _key(tool)
         return lambda cmd: cmd_cb(key, cmd)
 
-    sources: list[SourceResult] = []
+    tools: list[ToolResult] = []
 
-    def _run_subfinder() -> SourceResult:
+    def _run_subfinder() -> ToolResult:
         _cb("Running subfinder (passive)…")
         return run_subfinder(domain, line_cb=_line_cb("subfinder"), cmd_cb=_cmd_cb("subfinder"))
 
-    def _run_amass() -> SourceResult:
+    def _run_amass() -> ToolResult:
         _cb("Running amass (passive)…")
         return run_amass(domain, line_cb=_line_cb("amass"), cmd_cb=_cmd_cb("amass"))
 
-    def _run_findomain() -> SourceResult:
+    def _run_findomain() -> ToolResult:
         _cb("Running findomain…")
         return run_findomain(domain, line_cb=_line_cb("findomain"), cmd_cb=_cmd_cb("findomain"))
 
-    def _run_assetfinder() -> SourceResult:
+    def _run_assetfinder() -> ToolResult:
         _cb("Running assetfinder…")
         return run_assetfinder(domain, line_cb=_line_cb("assetfinder"), cmd_cb=_cmd_cb("assetfinder"))
 
-    def _run_dnsrecon_passive() -> SourceResult:
+    def _run_dnsrecon_passive() -> ToolResult:
         _cb("Running dnsrecon (passive)…")
         return run_dnsrecon(domain, mode=EnumMode.PASSIVE, line_cb=_line_cb("dnsrecon"), cmd_cb=_cmd_cb("dnsrecon"))
 
-    source_tasks: dict[str, Callable[[], SourceResult]] = {
+    tool_tasks: dict[str, Callable[[], ToolResult]] = {
         "subfinder": _run_subfinder,
         "amass": _run_amass,
         "findomain": _run_findomain,
         "assetfinder": _run_assetfinder,
         "dnsrecon": _run_dnsrecon_passive,
     }
-    with ThreadPoolExecutor(max_workers=len(source_tasks)) as pool:
-        futures = {pool.submit(fn): name for name, fn in source_tasks.items()}
+    with ThreadPoolExecutor(max_workers=len(tool_tasks)) as pool:
+        futures = {pool.submit(fn): name for name, fn in tool_tasks.items()}
         for fut in as_completed(futures):
-            source_name = futures[fut]
+            tool_name = futures[fut]
             try:
                 result = fut.result()
                 result.mode = EnumMode.PASSIVE
-                sources.append(result)
+                tools.append(result)
                 if finish_cb:
-                    finish_cb(_key(source_name), result.error, result.timed_out)
+                    finish_cb(_key(tool_name), result.error, result.timed_out)
             except Exception as exc:
-                sources.append(SourceResult(name=source_name, error=str(exc), available=False, mode=EnumMode.PASSIVE))
+                tools.append(ToolResult(name=tool_name, error=str(exc), available=False, mode=EnumMode.PASSIVE))
                 if finish_cb:
-                    finish_cb(_key(source_name), str(exc), False)
+                    finish_cb(_key(tool_name), str(exc), False)
 
-    return sources
+    return tools
 
 
 def _run_active(
@@ -133,8 +133,8 @@ def _run_active(
     cmd_cb: Callable[[str, str], None] | None = None,
     finish_cb: Callable[[str, str | None, bool], None] | None = None,
     overall_mode: EnumMode | None = None,
-) -> tuple[list[SourceResult], list[VhostResult]]:
-    """Run all active enumeration sources.
+) -> tuple[list[ToolResult], list[VhostResult]]:
+    """Run all active enumeration tools.
 
     :param domain: Target base domain.
     :param wordlist: Path to the DNS wordlist.
@@ -142,15 +142,15 @@ def _run_active(
         Pass an empty list to skip ffuf entirely.
     :param progress_cb: Optional callback for progress messages.
     :param debug_cb: Optional callback for real-time tool output lines,
-        called as ``debug_cb(source_name, line)``.
-    :param cmd_cb: Optional callback for the command that runs each source,
-        called as ``cmd_cb(source_name, cmd_string)``.
-    :param finish_cb: Optional callback called when a source completes,
-        called as ``finish_cb(source_name, error_or_none, timed_out)``.
+        called as ``debug_cb(tool_name, line)``.
+    :param cmd_cb: Optional callback for the command that runs each tool,
+        called as ``cmd_cb(tool_name, cmd_string)``.
+    :param finish_cb: Optional callback called when a tool completes,
+        called as ``finish_cb(tool_name, error_or_none, timed_out)``.
     :param overall_mode: The mode passed to :func:`assess`; when ``EnumMode.ALL``
         tools that also run in the passive phase use a ``"<name> active"`` key so
         the debug log shows a distinct section for each phase.
-    :returns: Tuple of (sources, vhosts).
+    :returns: Tuple of (tools, vhosts).
     """
 
     def _cb(msg: str) -> None:
@@ -163,38 +163,38 @@ def _run_active(
             return f"{name} active"
         return name
 
-    def _line_cb(source: str) -> Callable[[str], None] | None:
+    def _line_cb(tool: str) -> Callable[[str], None] | None:
         if debug_cb is None:
             return None
-        key = _key(source)
+        key = _key(tool)
         return lambda line: debug_cb(key, line)
 
-    def _cmd_cb(source: str) -> Callable[[str], None] | None:
+    def _cmd_cb(tool: str) -> Callable[[str], None] | None:
         if cmd_cb is None:
             return None
-        key = _key(source)
+        key = _key(tool)
         return lambda cmd: cmd_cb(key, cmd)
 
-    sources: list[SourceResult] = []
+    tools: list[ToolResult] = []
 
     _cb("Running amass (active)…")
     result = run_amass(domain, mode=EnumMode.ACTIVE, wordlist=wordlist, line_cb=_line_cb("amass"), cmd_cb=_cmd_cb("amass"))
     result.mode = EnumMode.ACTIVE
-    sources.append(result)
+    tools.append(result)
     if finish_cb:
         finish_cb(_key("amass"), result.error, result.timed_out)
 
     _cb("Running dnsrecon (active)…")
     result = run_dnsrecon(domain, mode=EnumMode.ACTIVE, wordlist=wordlist, line_cb=_line_cb("dnsrecon"), cmd_cb=_cmd_cb("dnsrecon"))
     result.mode = EnumMode.ACTIVE
-    sources.append(result)
+    tools.append(result)
     if finish_cb:
         finish_cb(_key("dnsrecon"), result.error, result.timed_out)
 
     _cb("Running gobuster dns…")
     result = run_gobuster_dns(domain, wordlist=wordlist, line_cb=_line_cb("gobuster"), cmd_cb=_cmd_cb("gobuster"))
     result.mode = EnumMode.ACTIVE
-    sources.append(result)
+    tools.append(result)
     if finish_cb:
         finish_cb(_key("gobuster"), result.error, result.timed_out)
 
@@ -216,24 +216,24 @@ def _run_active(
                 if v.vhost not in seen_vhosts:
                     seen_vhosts.add(v.vhost)
                     all_vhosts.append(v)
-        sources.append(SourceResult(name="ffuf", subdomains=[v.vhost for v in all_vhosts], mode=EnumMode.ACTIVE))
+        tools.append(ToolResult(name="ffuf", subdomains=[v.vhost for v in all_vhosts], mode=EnumMode.ACTIVE))
     else:
-        sources.append(SourceResult(name="ffuf", available=False, error="no URL resolved", mode=EnumMode.ACTIVE))
+        tools.append(ToolResult(name="ffuf", available=False, error="no URL resolved", mode=EnumMode.ACTIVE))
         if finish_cb:
             finish_cb("ffuf", "no URL resolved", False)
 
-    return sources, all_vhosts
+    return tools, all_vhosts
 
 
 def _resolve_all(
     fqdns: list[str],
-    source_map: dict[str, list[str]],
+    tool_map: dict[str, list[str]],
     timeout: float = 5.0,
 ) -> list[SubdomainResult]:
     """Resolve all *fqdns* in parallel and build :class:`SubdomainResult` objects.
 
     :param fqdns: Unique fully-qualified domain names to resolve.
-    :param source_map: Mapping of fqdn → list of source names that found it.
+    :param tool_map: Mapping of fqdn → list of tool names that found it.
     :param timeout: Per-query DNS timeout in seconds.
     :returns: List of :class:`~subdomainenum.models.SubdomainResult` objects.
     """
@@ -250,7 +250,7 @@ def _resolve_all(
             fqdn=fqdn,
             status=status,
             ip_addresses=ips,
-            sources=source_map.get(fqdn, []),
+            tools=tool_map.get(fqdn, []),
             alive=alive,
         )
 
@@ -281,11 +281,11 @@ def assess(
     :param timeout: DNS resolution timeout per query in seconds.
     :param progress_cb: Optional callback called with progress strings.
     :param debug_cb: Optional callback for real-time tool output lines,
-        called as ``debug_cb(source_name, line)`` for each line a tool emits.
-    :param cmd_cb: Optional callback for the command/label that launches each source,
-        called as ``cmd_cb(source_name, cmd_string)`` once per source.
-    :param finish_cb: Optional callback called when a source completes,
-        called as ``finish_cb(source_name, error_or_none, timed_out)``.
+        called as ``debug_cb(tool_name, line)`` for each line a tool emits.
+    :param cmd_cb: Optional callback for the command/label that launches each tool,
+        called as ``cmd_cb(tool_name, cmd_string)`` once per tool.
+    :param finish_cb: Optional callback called when a tool completes,
+        called as ``finish_cb(tool_name, error_or_none, timed_out)``.
     :returns: Completed enumeration report.
     :rtype: EnumReport
     :raises ValueError: When *mode* requires a wordlist but none was provided.
@@ -297,12 +297,12 @@ def assess(
         if progress_cb:
             progress_cb(msg)
 
-    all_sources: list[SourceResult] = []
+    all_tools: list[ToolResult] = []
     all_vhosts: list[VhostResult] = []
 
     if mode in (EnumMode.PASSIVE, EnumMode.ALL):
         _cb("Starting passive enumeration…")
-        all_sources.extend(_run_passive(domain, progress_cb, debug_cb=debug_cb, cmd_cb=cmd_cb, finish_cb=finish_cb, overall_mode=mode))
+        all_tools.extend(_run_passive(domain, progress_cb, debug_cb=debug_cb, cmd_cb=cmd_cb, finish_cb=finish_cb, overall_mode=mode))
 
     if mode in (EnumMode.ACTIVE, EnumMode.ALL):
         _cb("Starting active enumeration…")
@@ -310,9 +310,9 @@ def assess(
             urls: list[str] = [url]
         else:
             candidate_ips: list[str] = resolve_ips(domain)
-            if mode == EnumMode.ALL and all_sources:
+            if mode == EnumMode.ALL and all_tools:
                 passive_fqdns: list[str] = list({
-                    sub for src in all_sources for sub in src.subdomains
+                    sub for tool in all_tools for sub in tool.subdomains
                 })
                 if passive_fqdns:
                     with ThreadPoolExecutor(max_workers=min(50, len(passive_fqdns))) as exc:
@@ -327,32 +327,32 @@ def assess(
                     formatted = f"[{ip}]" if ":" in ip else ip
                     unique_ips.append(f"http://{formatted}")
             urls = unique_ips
-        active_sources, vhosts = _run_active(
+        active_tools, vhosts = _run_active(
             domain, wordlist=wordlist, urls=urls,
             progress_cb=progress_cb, debug_cb=debug_cb,
             cmd_cb=cmd_cb, finish_cb=finish_cb, overall_mode=mode,
         )
-        all_sources.extend(active_sources)
+        all_tools.extend(active_tools)
         all_vhosts.extend(vhosts)
 
-    # Deduplicate FQDNs across all sources, track which source found each.
-    fqdn_sources: dict[str, list[str]] = {}
-    for src in all_sources:
-        for fqdn in src.subdomains:
+    # Deduplicate FQDNs across all tools, track which tool found each.
+    fqdn_tools: dict[str, list[str]] = {}
+    for tool in all_tools:
+        for fqdn in tool.subdomains:
             fqdn = fqdn.lower().strip()
             if fqdn:
-                fqdn_sources.setdefault(fqdn, [])
-                if src.name not in fqdn_sources[fqdn]:
-                    fqdn_sources[fqdn].append(src.name)
+                fqdn_tools.setdefault(fqdn, [])
+                if tool.name not in fqdn_tools[fqdn]:
+                    fqdn_tools[fqdn].append(tool.name)
 
-    unique_fqdns = list(fqdn_sources.keys())
+    unique_fqdns = list(fqdn_tools.keys())
     _cb(f"Resolving {len(unique_fqdns)} unique subdomains…")
-    subdomains = _resolve_all(unique_fqdns, fqdn_sources, timeout=timeout)
+    subdomains = _resolve_all(unique_fqdns, fqdn_tools, timeout=timeout)
 
     return EnumReport(
         domain=domain,
         mode=mode,
         subdomains=subdomains,
         vhosts=all_vhosts,
-        sources=all_sources,
+        tools=all_tools,
     )
