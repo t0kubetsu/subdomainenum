@@ -52,10 +52,11 @@ tests/
 ### Request lifecycle
 1. `cli.py` validates domain and flags, builds `debug_cb` / `progress_cb`
 2. `cli.py` calls `assess(domain, mode, ...)` from `assessor.py`
-3. `assessor.py` fans out passive sources in a `ThreadPoolExecutor` (all run concurrently)
-4. Active sources run sequentially after passive (require wordlist)
-5. Discovered FQDNs are DNS-resolved in parallel (50 workers, `dns_utils.resolve_ips`)
-6. `EnumReport` is returned; `reporter.py` renders with Rich or serialises to JSON
+3. `assessor.py` fans out passive tools in a `ThreadPoolExecutor` (5 parallel workers)
+4. The 3 non-ffuf active tools (amass, dnsrecon, gobuster) run in their own `ThreadPoolExecutor` (3 parallel workers) via `_run_active_enum`. In `ALL` mode, the passive pool and the active-enum pool run concurrently under an outer executor (phase fusion).
+5. `ffuf` runs after the enumeration pools drain so it can target IPs resolved from passive FQDNs; multiple URLs are fuzzed in parallel (`_run_ffuf_fanout`, capped at 8 workers).
+6. Discovered FQDNs are DNS-resolved in parallel (50 workers, `dns_utils.resolve_ips`). IPs resolved for ffuf URL enrichment are cached and reused to avoid duplicate lookups.
+7. `EnumReport` is returned; `reporter.py` renders with Rich or serialises to JSON
 
 ### I/O boundaries (mock these in tests)
 | Boundary | Module | What to patch |
@@ -74,7 +75,7 @@ tests/
 - Test class naming: `TestRunTool`, `TestQueryCrtSh`, `TestAssess`, etc. (class-per-feature)
 - AAA pattern: Arrange → Act → Assert in every test method
 - Coverage target: ≥ 80% (configured in `pyproject.toml`)
-- Current test count: **322 tests**
+- Current test count: **341 tests**
 
 ## Adding a New Passive Source
 1. Add a `query_<name>(domain) → ToolResult` function directly in `assessor.py` or a new helper module

@@ -143,6 +143,45 @@ class TestBuildVerdict:
         assert "amass" in v.tools_available
         assert "findomain" in v.tools_missing
 
+    def test_tools_available_deduplicated_across_phases(self) -> None:
+        """In ALL mode amass/dnsrecon each have two ToolResults; each name appears once."""
+        tools = [
+            ToolResult(name="subfinder", available=True, mode=EnumMode.PASSIVE),
+            ToolResult(name="amass", available=True, mode=EnumMode.PASSIVE),
+            ToolResult(name="dnsrecon", available=True, mode=EnumMode.PASSIVE),
+            ToolResult(name="amass", available=True, mode=EnumMode.ACTIVE),
+            ToolResult(name="dnsrecon", available=True, mode=EnumMode.ACTIVE),
+            ToolResult(name="gobuster", available=True, mode=EnumMode.ACTIVE),
+        ]
+        report = self._make_report(tools=tools, mode=EnumMode.ALL)
+        v = build_verdict(report)
+        assert v.tools_available.count("amass") == 1
+        assert v.tools_available.count("dnsrecon") == 1
+        assert v.tools_available == ["subfinder", "amass", "dnsrecon", "gobuster"]
+
+    def test_tools_missing_excludes_names_available_elsewhere(self) -> None:
+        """If a name is available in one run and unavailable in another, it's NOT in missing."""
+        tools = [
+            ToolResult(name="amass", available=True, mode=EnumMode.PASSIVE),
+            ToolResult(name="amass", available=False, error="not found", mode=EnumMode.ACTIVE),
+            ToolResult(name="findomain", available=False, error="not found"),
+        ]
+        report = self._make_report(tools=tools)
+        v = build_verdict(report)
+        assert v.tools_available == ["amass"]
+        assert v.tools_missing == ["findomain"]
+        assert "amass" not in v.tools_missing
+
+    def test_tools_missing_deduplicated(self) -> None:
+        """A missing tool listed twice appears once in tools_missing."""
+        tools = [
+            ToolResult(name="findomain", available=False, error="not found"),
+            ToolResult(name="findomain", available=False, error="not found"),
+        ]
+        report = self._make_report(tools=tools)
+        v = build_verdict(report)
+        assert v.tools_missing == ["findomain"]
+
     def test_summary_line_contains_key_counts(self) -> None:
         subs = [
             SubdomainResult(fqdn="a.example.com", status=Status.ALIVE, alive=True),

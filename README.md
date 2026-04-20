@@ -13,7 +13,7 @@ $ subdomainenum check example.com
 ```
 
 ![Python](https://img.shields.io/badge/python-%3E%3D3.11-blue)
-![Tests](https://img.shields.io/badge/tests-322%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-341%20passing-brightgreen)
 ![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen)
 ![License](https://img.shields.io/badge/license-GPLv3-lightgrey)
 
@@ -48,6 +48,10 @@ $ subdomainenum check example.com
 | **DNS resolution** | —       | All discovered FQDNs are resolved (A + AAAA) in parallel with a configurable timeout |
 
 Passive and active sources can be run independently or combined (`--mode all`).
+In `--mode all`, the passive pool (5 workers) and the non-ffuf active pool
+(3 workers: amass, dnsrecon, gobuster) run concurrently; `ffuf` then fans out
+one worker per resolved target IP (capped at 8). IPs looked up while building
+`ffuf` URLs are cached so no FQDN is DNS-resolved twice.
 
 ---
 
@@ -342,7 +346,7 @@ pytest tests/test_assessor.py -v
 pytest tests/test_cli.py::TestCheckCommand -v
 ```
 
-The test suite has **322 tests** and achieves **100% coverage** across all modules.
+The test suite has **341 tests** and achieves **100% coverage** across all modules.
 
 All DNS I/O (`dns.resolver.Resolver.resolve`), TLS
 sockets, and subprocess calls are mocked at the boundary — no test touches a real

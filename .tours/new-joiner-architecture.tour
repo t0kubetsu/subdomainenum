@@ -37,7 +37,7 @@
       "file": "subdomainenum/assessor.py",
       "line": 222,
       "title": "assess() — Public API",
-      "description": "`assess()` is the library's public surface. It accepts a domain and optional callbacks and returns an `EnumReport`. Nothing inside raises; all errors are captured in `ToolResult.error`.\n\nThe three phases run sequentially:\n1. Passive tools in parallel (`_run_passive`)\n2. Active tools sequentially (`_run_active`)\n3. DNS resolution of deduplicated FQDNs (`_resolve_all`)\n\nActive tools are sequential because brute-force tools are CPU/network saturating — running them in parallel would degrade results."
+      "description": "`assess()` is the library's public surface. It accepts a domain and optional callbacks and returns an `EnumReport`. Nothing inside raises; all errors are captured in `ToolResult.error`.\n\nPhases:\n1. Passive tools in parallel (`_run_passive`, 5 workers)\n2. Non-ffuf active tools in parallel (`_run_active_enum`, 3 workers: amass, dnsrecon, gobuster)\n3. ffuf fans out one worker per resolved target IP, capped at 8 (`_run_ffuf_fanout`)\n4. DNS resolution of deduplicated FQDNs (`_resolve_all`, 50 workers; reuses IPs already resolved for ffuf URLs)\n\nIn `ALL` mode phases 1 and 2 run concurrently under an outer executor (phase fusion); ffuf runs after they drain so it can target IPs resolved from passive FQDNs."
     },
     {
       "file": "subdomainenum/assessor.py",
@@ -101,7 +101,7 @@
     },
     {
       "title": "What to read next",
-      "description": "You can now follow any scan end to end:\n\n1. **Add a passive source** → `assessor.py:_run_passive` + new file in `tools/`\n2. **Add an active tool** → `assessor.py:_run_active` + `constants.py:ACTIVE_TOOLS` + new wrapper\n3. **Change output format** → `reporter.py` + `cli.py:_save_report`\n4. **Tests** → `tests/tools/test_tool_runner.py` for the subprocess layer; `tests/test_assessor.py` for orchestration; `tests/tools/test_wrappers.py` for individual wrappers\n\nEvery external call (`subprocess`, DNS, HTTP) is isolated behind a boundary that tests mock at — you never need a real network to run the suite."
+      "description": "You can now follow any scan end to end:\n\n1. **Add a passive source** → `assessor.py:_run_passive` + new file in `tools/`\n2. **Add an active tool** → `assessor.py:_run_active_enum` + `constants.py:ACTIVE_TOOLS` + new wrapper\n3. **Change output format** → `reporter.py` + `cli.py:_save_report`\n4. **Tests** → `tests/tools/test_tool_runner.py` for the subprocess layer; `tests/test_assessor.py` for orchestration; `tests/tools/test_wrappers.py` for individual wrappers\n\nEvery external call (`subprocess`, DNS, HTTP) is isolated behind a boundary that tests mock at — you never need a real network to run the suite."
     }
   ]
 }

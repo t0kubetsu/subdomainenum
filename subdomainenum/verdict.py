@@ -27,8 +27,12 @@ class VerdictSummary:
         otherwise ran (``available=True``, ``error is None``, ``timed_out=True``).
         Combined with ``tools_ran`` and ``tools_failed``, the three counts partition
         ``len(report.tools)``.
-    :param tools_available: Names of available external tools.
-    :param tools_missing: Names of requested tools that were not found on the system.
+    :param tools_available: Unique tool names whose binary was found in at least one
+        run (deduplicated across phases — a tool run in both passive and active
+        in ``ALL`` mode appears once).
+    :param tools_missing: Unique tool names whose every run reported the binary
+        as unavailable. A name that is available in any run is excluded from
+        this list even if another run reported it missing.
     :param summary_line: Single human-readable summary string.
     """
 
@@ -66,8 +70,18 @@ def build_verdict(report: EnumReport) -> VerdictSummary:
         if t.available and t.error is None and not t.timed_out
     )
 
-    tools_available = [t.name for t in report.tools if t.available]
-    tools_missing = [t.name for t in report.tools if not t.available]
+    # Deduplicate by name while preserving first-seen order. In ALL mode amass
+    # and dnsrecon each produce two ToolResults (one per phase); naive list
+    # comprehensions would list them twice. A tool is "available" if at least
+    # one run found the binary; it appears in "missing" only if no run did.
+    tools_available = list(dict.fromkeys(
+        t.name for t in report.tools if t.available
+    ))
+    available_set = set(tools_available)
+    tools_missing = list(dict.fromkeys(
+        t.name for t in report.tools
+        if not t.available and t.name not in available_set
+    ))
 
     total = len(report.subdomains)
     vhosts_found = len(report.vhosts)

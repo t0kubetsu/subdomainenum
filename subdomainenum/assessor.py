@@ -31,6 +31,10 @@ from subdomainenum.models import (
 )
 
 
+# Cap ffuf per-URL fan-out; existing ffuf -t 40 already saturates I/O inside each worker.
+_FFUF_MAX_WORKERS = 8
+
+
 def _run_passive(
     domain: str,
     progress_cb: Callable[[str], None] | None,
@@ -124,22 +128,20 @@ def _run_passive(
     return tools
 
 
-def _run_active(
+def _run_active_enum(
     domain: str,
+    *,
     wordlist: str,
-    urls: list[str],
-    progress_cb: Callable[[str], None] | None,
+    progress_cb: Callable[[str], None] | None = None,
     debug_cb: Callable[[str, str], None] | None = None,
     cmd_cb: Callable[[str, str], None] | None = None,
     finish_cb: Callable[[str, str | None, bool], None] | None = None,
     overall_mode: EnumMode | None = None,
-) -> tuple[list[ToolResult], list[VhostResult]]:
-    """Run all active enumeration tools.
+) -> list[ToolResult]:
+    """Run the 3 non-ffuf active tools (amass, dnsrecon, gobuster) in parallel.
 
     :param domain: Target base domain.
     :param wordlist: Path to the DNS wordlist.
-    :param urls: Target URLs for vhost fuzzing; one ``run_ffuf`` call is made per URL.
-        Pass an empty list to skip ffuf entirely.
     :param progress_cb: Optional callback for progress messages.
     :param debug_cb: Optional callback for real-time tool output lines,
         called as ``debug_cb(tool_name, line)``.
@@ -150,7 +152,7 @@ def _run_active(
     :param overall_mode: The mode passed to :func:`assess`; when ``EnumMode.ALL``
         tools that also run in the passive phase use a ``"<name> active"`` key so
         the debug log shows a distinct section for each phase.
-    :returns: Tuple of (tools, vhosts).
+    :returns: List of :class:`~subdomainenum.models.ToolResult`.
     """
 
     def _cb(msg: str) -> None:
@@ -158,7 +160,6 @@ def _run_active(
             progress_cb(msg)
 
     def _key(name: str) -> str:
-        """Return the callback key for *name*, appending a phase suffix in ALL mode."""
         if overall_mode == EnumMode.ALL and name in ("amass", "dnsrecon"):
             return f"{name} active"
         return name
@@ -177,69 +178,186 @@ def _run_active(
 
     tools: list[ToolResult] = []
 
-    _cb("Running amass (active)…")
-    result = run_amass(domain, mode=EnumMode.ACTIVE, wordlist=wordlist, line_cb=_line_cb("amass"), cmd_cb=_cmd_cb("amass"))
-    result.mode = EnumMode.ACTIVE
-    tools.append(result)
-    if finish_cb:
-        finish_cb(_key("amass"), result.error, result.timed_out)
+    def _run_amass_active() -> ToolResult:
+        _cb("Running amass (active)…")
+        return run_amass(
+            domain, mode=EnumMode.ACTIVE, wordlist=wordlist,
+            line_cb=_line_cb("amass"), cmd_cb=_cmd_cb("amass"),
+        )
 
-    _cb("Running dnsrecon (active)…")
-    result = run_dnsrecon(domain, mode=EnumMode.ACTIVE, wordlist=wordlist, line_cb=_line_cb("dnsrecon"), cmd_cb=_cmd_cb("dnsrecon"))
-    result.mode = EnumMode.ACTIVE
-    tools.append(result)
-    if finish_cb:
-        finish_cb(_key("dnsrecon"), result.error, result.timed_out)
+    def _run_dnsrecon_active() -> ToolResult:
+        _cb("Running dnsrecon (active)…")
+        return run_dnsrecon(
+            domain, mode=EnumMode.ACTIVE, wordlist=wordlist,
+            line_cb=_line_cb("dnsrecon"), cmd_cb=_cmd_cb("dnsrecon"),
+        )
 
-    _cb("Running gobuster dns…")
-    result = run_gobuster_dns(domain, wordlist=wordlist, line_cb=_line_cb("gobuster"), cmd_cb=_cmd_cb("gobuster"))
-    result.mode = EnumMode.ACTIVE
-    tools.append(result)
-    if finish_cb:
-        finish_cb(_key("gobuster"), result.error, result.timed_out)
+    def _run_gobuster() -> ToolResult:
+        _cb("Running gobuster dns…")
+        return run_gobuster_dns(
+            domain, wordlist=wordlist,
+            line_cb=_line_cb("gobuster"), cmd_cb=_cmd_cb("gobuster"),
+        )
 
-    all_vhosts: list[VhostResult] = []
-    if urls:
-        _cb(f"Running ffuf (vhost fuzzing) against {len(urls)} IP(s)…")
-        seen_vhosts: set[str] = set()
-        for i, target_url in enumerate(urls):
-            ffuf_key = f"ffuf {i + 1}" if len(urls) > 1 else "ffuf"
-            _cb(f"  ffuf → {target_url}")
-            hits = run_ffuf(
+    tool_tasks: dict[str, Callable[[], ToolResult]] = {
+        "amass": _run_amass_active,
+        "dnsrecon": _run_dnsrecon_active,
+        "gobuster": _run_gobuster,
+    }
+    with ThreadPoolExecutor(max_workers=len(tool_tasks)) as pool:
+        futures = {pool.submit(fn): name for name, fn in tool_tasks.items()}
+        for fut in as_completed(futures):
+            tool_name = futures[fut]
+            try:
+                result = fut.result()
+                result.mode = EnumMode.ACTIVE
+                tools.append(result)
+                if finish_cb:
+                    finish_cb(_key(tool_name), result.error, result.timed_out)
+            except Exception as exc:
+                tools.append(ToolResult(name=tool_name, error=str(exc), available=False, mode=EnumMode.ACTIVE))
+                if finish_cb:
+                    finish_cb(_key(tool_name), str(exc), False)
+
+    return tools
+
+
+def _run_ffuf_fanout(
+    domain: str,
+    *,
+    wordlist: str,
+    urls: list[str],
+    progress_cb: Callable[[str], None] | None = None,
+    debug_cb: Callable[[str, str], None] | None = None,
+    cmd_cb: Callable[[str, str], None] | None = None,
+    finish_cb: Callable[[str, str | None, bool], None] | None = None,
+) -> tuple[ToolResult, list[VhostResult]]:
+    """Run ffuf in parallel across *urls*, deduplicating discovered vhosts.
+
+    :param domain: Target base domain (Host header suffix).
+    :param wordlist: Path to the vhost wordlist.
+    :param urls: List of target URLs; ffuf is launched once per URL in a thread pool
+        capped at :data:`_FFUF_MAX_WORKERS`. Empty list → ffuf is skipped and the
+        returned :class:`ToolResult` is marked unavailable.
+    :param progress_cb: Optional callback for progress messages.
+    :param debug_cb: Optional callback ``debug_cb(ffuf_key, line)``.
+    :param cmd_cb: Optional callback ``cmd_cb(ffuf_key, cmd_string)``.
+    :param finish_cb: Optional callback ``finish_cb(ffuf_key, error_or_none, timed_out)``
+        invoked once per URL.
+    :returns: Tuple of (aggregated ffuf :class:`ToolResult`, deduplicated
+        :class:`VhostResult` list).
+    """
+
+    if not urls:
+        tool = ToolResult(name="ffuf", available=False, error="no URL resolved", mode=EnumMode.ACTIVE)
+        if finish_cb:
+            finish_cb("ffuf", "no URL resolved", False)
+        return tool, []
+
+    if progress_cb:
+        progress_cb(f"Running ffuf (vhost fuzzing) against {len(urls)} IP(s) in parallel…")
+
+    def _make_task(idx: int, target_url: str) -> tuple[str, Callable[[], list[VhostResult]]]:
+        ffuf_key = f"ffuf {idx + 1}" if len(urls) > 1 else "ffuf"
+        _line = (lambda line, k=ffuf_key: debug_cb(k, line)) if debug_cb is not None else None
+        _cmd = (lambda c, k=ffuf_key: cmd_cb(k, c)) if cmd_cb is not None else None
+
+        def _run() -> list[VhostResult]:
+            return run_ffuf(
                 domain, url=target_url, wordlist=wordlist,
-                line_cb=(lambda line, k=ffuf_key: debug_cb(k, line)) if debug_cb is not None else None,
-                cmd_cb=(lambda c, k=ffuf_key: cmd_cb(k, c)) if cmd_cb is not None else None,
+                line_cb=_line, cmd_cb=_cmd,
             )
+
+        return ffuf_key, _run
+
+    tasks = [_make_task(i, u) for i, u in enumerate(urls)]
+
+    seen_vhosts: set[str] = set()
+    all_vhosts: list[VhostResult] = []
+
+    max_workers = min(len(urls), _FFUF_MAX_WORKERS)
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        futures = {pool.submit(fn): key for key, fn in tasks}
+        for fut in as_completed(futures):
+            key = futures[fut]
+            try:
+                hits = fut.result()
+            except Exception as exc:
+                if finish_cb:
+                    finish_cb(key, str(exc), False)
+                continue
             if finish_cb:
-                finish_cb(ffuf_key, None, False)
+                finish_cb(key, None, False)
             for v in hits:
                 if v.vhost not in seen_vhosts:
                     seen_vhosts.add(v.vhost)
                     all_vhosts.append(v)
-        tools.append(ToolResult(name="ffuf", subdomains=[v.vhost for v in all_vhosts], mode=EnumMode.ACTIVE))
-    else:
-        tools.append(ToolResult(name="ffuf", available=False, error="no URL resolved", mode=EnumMode.ACTIVE))
-        if finish_cb:
-            finish_cb("ffuf", "no URL resolved", False)
 
-    return tools, all_vhosts
+    tool = ToolResult(
+        name="ffuf",
+        subdomains=[v.vhost for v in all_vhosts],
+        mode=EnumMode.ACTIVE,
+    )
+    return tool, all_vhosts
+
+
+def _run_active(
+    domain: str,
+    wordlist: str,
+    urls: list[str],
+    progress_cb: Callable[[str], None] | None,
+    debug_cb: Callable[[str, str], None] | None = None,
+    cmd_cb: Callable[[str, str], None] | None = None,
+    finish_cb: Callable[[str, str | None, bool], None] | None = None,
+    overall_mode: EnumMode | None = None,
+) -> tuple[list[ToolResult], list[VhostResult]]:
+    """Run all active enumeration tools (enumeration + ffuf).
+
+    Thin wrapper: dispatches to :func:`_run_active_enum` for amass/dnsrecon/gobuster
+    (parallel) and :func:`_run_ffuf_fanout` for ffuf (parallel per URL). Used by
+    :func:`assess` in ``ACTIVE`` mode; in ``ALL`` mode the two helpers are invoked
+    directly so the enumeration pool can run concurrently with passive.
+
+    :returns: Tuple of (tools, vhosts).
+    """
+    tools = _run_active_enum(
+        domain, wordlist=wordlist,
+        progress_cb=progress_cb, debug_cb=debug_cb,
+        cmd_cb=cmd_cb, finish_cb=finish_cb, overall_mode=overall_mode,
+    )
+    ffuf_tool, vhosts = _run_ffuf_fanout(
+        domain, wordlist=wordlist, urls=urls,
+        progress_cb=progress_cb, debug_cb=debug_cb,
+        cmd_cb=cmd_cb, finish_cb=finish_cb,
+    )
+    tools.append(ffuf_tool)
+    return tools, vhosts
 
 
 def _resolve_all(
     fqdns: list[str],
     tool_map: dict[str, list[str]],
     timeout: float = 5.0,
+    pre_resolved: dict[str, list[str]] | None = None,
 ) -> list[SubdomainResult]:
     """Resolve all *fqdns* in parallel and build :class:`SubdomainResult` objects.
 
     :param fqdns: Unique fully-qualified domain names to resolve.
     :param tool_map: Mapping of fqdn → list of tool names that found it.
     :param timeout: Per-query DNS timeout in seconds.
+    :param pre_resolved: Optional mapping of fqdn → cached IP list. Membership is
+        tested with ``in`` so an empty list means "cached as dead, skip live DNS",
+        while absence means "not cached, resolve live". Used to avoid double
+        resolution when FQDNs were already resolved for ffuf URL enrichment.
     :returns: List of :class:`~subdomainenum.models.SubdomainResult` objects.
     """
+    cache = pre_resolved or {}
 
     def _resolve_one(fqdn: str) -> SubdomainResult:
-        ips = resolve_ips(fqdn, timeout=timeout)
+        if fqdn in cache:
+            ips = cache[fqdn]
+        else:
+            ips = resolve_ips(fqdn, timeout=timeout)
         if ips:
             status = Status.ALIVE
             alive = True
@@ -260,6 +378,55 @@ def _resolve_all(
     return sorted(results, key=lambda r: r.fqdn)
 
 
+def _compute_ffuf_urls(
+    domain: str,
+    url: str | None,
+    passive_fqdns: list[str],
+) -> tuple[list[str], dict[str, list[str]]]:
+    """Build the list of ffuf target URLs and return the IP cache in one call.
+
+    When *url* is given it is returned as-is and the cache is empty. Otherwise
+    the base *domain* is resolved plus every distinct FQDN in *passive_fqdns*;
+    each passive FQDN's IPs are recorded in the returned cache (even if empty,
+    so the final report's :func:`_resolve_all` call does not repeat the DNS
+    lookup). IPv6 addresses are bracketed.
+
+    :param domain: Target base domain.
+    :param url: Caller-supplied URL (takes precedence over auto-derivation).
+    :param passive_fqdns: FQDNs discovered in the passive phase (may be empty).
+    :returns: Tuple of (deduplicated ``http://<ip>`` URL list, fqdn→IPs cache
+        suitable for :func:`_resolve_all`'s ``pre_resolved`` kwarg).
+    """
+    if url is not None:
+        return [url], {}
+
+    candidate_ips: list[str] = resolve_ips(domain)
+    pre_resolved: dict[str, list[str]] = {}
+
+    if passive_fqdns:
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for fqdn in passive_fqdns:
+            f = fqdn.lower().strip()
+            if f and f not in seen:
+                seen.add(f)
+                normalized.append(f)
+        with ThreadPoolExecutor(max_workers=min(50, len(normalized) or 1)) as pool:
+            ip_lists = list(pool.map(resolve_ips, normalized))
+        for fqdn, ips in zip(normalized, ip_lists):
+            pre_resolved[fqdn] = ips
+            candidate_ips.extend(ips)
+
+    seen_ips: set[str] = set()
+    unique_urls: list[str] = []
+    for ip in candidate_ips:
+        if ip not in seen_ips:
+            seen_ips.add(ip)
+            formatted = f"[{ip}]" if ":" in ip else ip
+            unique_urls.append(f"http://{formatted}")
+    return unique_urls, pre_resolved
+
+
 def assess(
     domain: str,
     *,
@@ -274,10 +441,14 @@ def assess(
 ) -> EnumReport:
     """Run subdomain enumeration for *domain* and return an :class:`~subdomainenum.models.EnumReport`.
 
+    In ``ALL`` mode, the 5 passive tools and the 3 non-ffuf active tools run
+    concurrently in two pools submitted to an outer executor; ffuf runs after
+    both pools drain so it can target IPs resolved from passive FQDNs.
+
     :param domain: Target base domain (e.g. ``"example.com"``).
     :param mode: Enumeration strategy – ``passive``, ``active``, or ``all``.
     :param wordlist: Path to wordlist required for active/all modes.
-    :param url: Target URL for wfuzz vhost fuzzing (optional).
+    :param url: Target URL for ffuf vhost fuzzing (optional).
     :param timeout: DNS resolution timeout per query in seconds.
     :param progress_cb: Optional callback called with progress strings.
     :param debug_cb: Optional callback for real-time tool output lines,
@@ -299,40 +470,56 @@ def assess(
 
     all_tools: list[ToolResult] = []
     all_vhosts: list[VhostResult] = []
+    pre_resolved: dict[str, list[str]] = {}
 
-    if mode in (EnumMode.PASSIVE, EnumMode.ALL):
+    if mode == EnumMode.PASSIVE:
         _cb("Starting passive enumeration…")
-        all_tools.extend(_run_passive(domain, progress_cb, debug_cb=debug_cb, cmd_cb=cmd_cb, finish_cb=finish_cb, overall_mode=mode))
+        all_tools.extend(_run_passive(
+            domain, progress_cb,
+            debug_cb=debug_cb, cmd_cb=cmd_cb, finish_cb=finish_cb, overall_mode=mode,
+        ))
 
-    if mode in (EnumMode.ACTIVE, EnumMode.ALL):
+    elif mode == EnumMode.ACTIVE:
         _cb("Starting active enumeration…")
-        if url is not None:
-            urls: list[str] = [url]
-        else:
-            candidate_ips: list[str] = resolve_ips(domain)
-            if mode == EnumMode.ALL and all_tools:
-                passive_fqdns: list[str] = list({
-                    sub for tool in all_tools for sub in tool.subdomains
-                })
-                if passive_fqdns:
-                    with ThreadPoolExecutor(max_workers=min(50, len(passive_fqdns))) as exc:
-                        extra_ip_lists = list(exc.map(resolve_ips, passive_fqdns))
-                    for ip_list in extra_ip_lists:
-                        candidate_ips.extend(ip_list)
-            seen_ips: set[str] = set()
-            unique_ips: list[str] = []
-            for ip in candidate_ips:
-                if ip not in seen_ips:
-                    seen_ips.add(ip)
-                    formatted = f"[{ip}]" if ":" in ip else ip
-                    unique_ips.append(f"http://{formatted}")
-            urls = unique_ips
+        urls, pre_resolved = _compute_ffuf_urls(domain, url, passive_fqdns=[])
         active_tools, vhosts = _run_active(
             domain, wordlist=wordlist, urls=urls,
             progress_cb=progress_cb, debug_cb=debug_cb,
             cmd_cb=cmd_cb, finish_cb=finish_cb, overall_mode=mode,
         )
         all_tools.extend(active_tools)
+        all_vhosts.extend(vhosts)
+
+    else:  # EnumMode.ALL — fuse passive + non-ffuf active phases
+        _cb("Starting enumeration (passive + active concurrent)…")
+        with ThreadPoolExecutor(max_workers=2) as outer:
+            f_passive = outer.submit(
+                _run_passive, domain, progress_cb,
+                debug_cb=debug_cb, cmd_cb=cmd_cb, finish_cb=finish_cb, overall_mode=mode,
+            )
+            f_active_enum = outer.submit(
+                _run_active_enum, domain,
+                wordlist=wordlist, progress_cb=progress_cb,
+                debug_cb=debug_cb, cmd_cb=cmd_cb, finish_cb=finish_cb, overall_mode=mode,
+            )
+            passive_tools = f_passive.result()
+            active_enum_tools = f_active_enum.result()
+
+        all_tools.extend(passive_tools)
+        all_tools.extend(active_enum_tools)
+
+        # ffuf runs after both pools drain so it can target passive-enriched IPs.
+        # _compute_ffuf_urls returns its cache so _resolve_all can skip duplicates.
+        passive_fqdns = [sub for tool in passive_tools for sub in tool.subdomains]
+        urls, pre_resolved = _compute_ffuf_urls(
+            domain, url, passive_fqdns=passive_fqdns,
+        )
+        ffuf_tool, vhosts = _run_ffuf_fanout(
+            domain, wordlist=wordlist, urls=urls,
+            progress_cb=progress_cb, debug_cb=debug_cb,
+            cmd_cb=cmd_cb, finish_cb=finish_cb,
+        )
+        all_tools.append(ffuf_tool)
         all_vhosts.extend(vhosts)
 
     # Deduplicate FQDNs across all tools, track which tool found each.
@@ -347,7 +534,9 @@ def assess(
 
     unique_fqdns = list(fqdn_tools.keys())
     _cb(f"Resolving {len(unique_fqdns)} unique subdomains…")
-    subdomains = _resolve_all(unique_fqdns, fqdn_tools, timeout=timeout)
+    subdomains = _resolve_all(
+        unique_fqdns, fqdn_tools, timeout=timeout, pre_resolved=pre_resolved,
+    )
 
     return EnumReport(
         domain=domain,

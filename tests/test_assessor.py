@@ -6,8 +6,15 @@ from unittest.mock import patch
 
 import pytest
 
-from subdomainenum.assessor import assess, _run_passive, _run_active, _resolve_all
-from subdomainenum.models import EnumMode, EnumReport, ToolResult, Status, SubdomainResult
+from subdomainenum.assessor import (
+    assess,
+    _run_passive,
+    _run_active,
+    _run_active_enum,
+    _run_ffuf_fanout,
+    _resolve_all,
+)
+from subdomainenum.models import EnumMode, EnumReport, ToolResult, Status, SubdomainResult, VhostResult
 
 
 def _make_source(*fqdns: str, name: str = "subfinder", available: bool = True) -> ToolResult:
@@ -48,15 +55,22 @@ class TestAssess:
         mock_active.assert_called_once()
 
     def test_all_mode_runs_both(self) -> None:
+        """In ALL mode, passive and active-enum helpers are both invoked
+        (directly from assess, fused in a single outer executor).
+        """
         with (
             patch("subdomainenum.assessor._run_passive", return_value=[]) as mock_passive,
-            patch("subdomainenum.assessor._run_active", return_value=([], [])) as mock_active,
+            patch("subdomainenum.assessor._run_active_enum", return_value=[]) as mock_active_enum,
+            patch(
+                "subdomainenum.assessor._run_ffuf_fanout",
+                return_value=(ToolResult(name="ffuf", mode=EnumMode.ACTIVE), []),
+            ),
             patch("subdomainenum.assessor._resolve_all", return_value=[]),
             patch("subdomainenum.assessor.resolve_ips", return_value=[]),
         ):
             assess("example.com", mode=EnumMode.ALL, wordlist="/tmp/w.txt")
         mock_passive.assert_called_once()
-        mock_active.assert_called_once()
+        mock_active_enum.assert_called_once()
 
     def test_auto_derives_url_from_resolved_ip(self) -> None:
         """When url is None and domain resolves, ffuf URLs are derived from all IPs."""
@@ -133,11 +147,15 @@ class TestAssess:
             assess("example.com", mode=EnumMode.ACTIVE, wordlist=None)
 
     def test_all_mode_includes_passive_subdomain_ips(self) -> None:
-        """In ALL mode, IPs from passive subdomains are added to the URL list."""
+        """In ALL mode, IPs from passive subdomains are added to the ffuf URL list."""
         passive_src = _make_source("sub.example.com", name="subfinder")
         with (
             patch("subdomainenum.assessor._run_passive", return_value=[passive_src]),
-            patch("subdomainenum.assessor._run_active", return_value=([], [])) as mock_active,
+            patch("subdomainenum.assessor._run_active_enum", return_value=[]),
+            patch(
+                "subdomainenum.assessor._run_ffuf_fanout",
+                return_value=(ToolResult(name="ffuf", mode=EnumMode.ACTIVE), []),
+            ) as mock_ffuf,
             patch("subdomainenum.assessor._resolve_all", return_value=[]),
             patch(
                 "subdomainenum.assessor.resolve_ips",
@@ -145,7 +163,7 @@ class TestAssess:
             ),
         ):
             assess("example.com", mode=EnumMode.ALL, wordlist="/tmp/w.txt")
-        _, kwargs = mock_active.call_args
+        _, kwargs = mock_ffuf.call_args
         assert "http://1.2.3.4" in kwargs["urls"]
         assert "http://5.6.7.8" in kwargs["urls"]
 
@@ -177,12 +195,16 @@ class TestAssess:
         passive_src = _make_source("a.example.com", "b.example.com", name="subfinder")
         with (
             patch("subdomainenum.assessor._run_passive", return_value=[passive_src]),
-            patch("subdomainenum.assessor._run_active", return_value=([], [])) as mock_active,
+            patch("subdomainenum.assessor._run_active_enum", return_value=[]),
+            patch(
+                "subdomainenum.assessor._run_ffuf_fanout",
+                return_value=(ToolResult(name="ffuf", mode=EnumMode.ACTIVE), []),
+            ) as mock_ffuf,
             patch("subdomainenum.assessor._resolve_all", return_value=[]),
             patch("subdomainenum.assessor.resolve_ips", return_value=["1.2.3.4"]),
         ):
             assess("example.com", mode=EnumMode.ALL, wordlist="/tmp/w.txt")
-        _, kwargs = mock_active.call_args
+        _, kwargs = mock_ffuf.call_args
         assert kwargs["urls"].count("http://1.2.3.4") == 1
 
     def test_multi_url_ffuf_deduplicates_vhost_results(self) -> None:
@@ -767,14 +789,21 @@ class TestPhaseAwareKeys:
         assert kwargs.get("overall_mode") == EnumMode.ALL
 
     def test_assess_passes_overall_mode_all_to_active(self) -> None:
+        """In ALL mode, overall_mode is forwarded to _run_active_enum so that
+        amass/dnsrecon debug keys get the 'active' suffix for phase disambiguation.
+        """
         with (
             patch("subdomainenum.assessor._run_passive", return_value=[]),
-            patch("subdomainenum.assessor._run_active", return_value=([], [])) as mock_active,
+            patch("subdomainenum.assessor._run_active_enum", return_value=[]) as mock_active_enum,
+            patch(
+                "subdomainenum.assessor._run_ffuf_fanout",
+                return_value=(ToolResult(name="ffuf", mode=EnumMode.ACTIVE), []),
+            ),
             patch("subdomainenum.assessor._resolve_all", return_value=[]),
             patch("subdomainenum.assessor.resolve_ips", return_value=[]),
         ):
             assess("example.com", mode=EnumMode.ALL, wordlist="/tmp/w.txt")
-        _, kwargs = mock_active.call_args
+        _, kwargs = mock_active_enum.call_args
         assert kwargs.get("overall_mode") == EnumMode.ALL
 
     def test_assess_passes_overall_mode_active_to_active(self) -> None:
@@ -786,3 +815,266 @@ class TestPhaseAwareKeys:
             assess("example.com", mode=EnumMode.ACTIVE, wordlist="/tmp/w.txt")
         _, kwargs = mock_active.call_args
         assert kwargs.get("overall_mode") == EnumMode.ACTIVE
+
+
+# ---------------------------------------------------------------------------
+# Parallelism (Barrier-based concurrency proofs)
+# ---------------------------------------------------------------------------
+
+
+class TestActiveParallelism:
+    """The three non-ffuf active tools must run concurrently in _run_active_enum."""
+
+    def test_active_tools_run_in_parallel(self) -> None:
+        """amass, dnsrecon, gobuster all reach a Barrier(3) together → proves concurrency."""
+        import threading
+        barrier = threading.Barrier(3, timeout=2.0)
+
+        def fake_amass(domain, **kwargs):
+            barrier.wait()
+            return _make_source(name="amass")
+
+        def fake_dnsrecon(domain, **kwargs):
+            barrier.wait()
+            return _make_source(name="dnsrecon")
+
+        def fake_gobuster(domain, **kwargs):
+            barrier.wait()
+            return _make_source(name="gobuster")
+
+        with (
+            patch("subdomainenum.assessor.run_amass", side_effect=fake_amass),
+            patch("subdomainenum.assessor.run_dnsrecon", side_effect=fake_dnsrecon),
+            patch("subdomainenum.assessor.run_gobuster_dns", side_effect=fake_gobuster),
+        ):
+            tools = _run_active_enum("example.com", wordlist="/tmp/w.txt", progress_cb=None)
+
+        # Barrier did not raise BrokenBarrierError → all 3 reached the barrier together.
+        assert len(tools) == 3
+        names = {t.name for t in tools}
+        assert names == {"amass", "dnsrecon", "gobuster"}
+
+    def test_active_enum_captures_unexpected_exception(self) -> None:
+        """If a tool runner raises, the pool captures it as ToolResult(available=False)."""
+        src = _make_source()
+        with (
+            patch("subdomainenum.assessor.run_amass", side_effect=RuntimeError("boom")),
+            patch("subdomainenum.assessor.run_dnsrecon", return_value=src),
+            patch("subdomainenum.assessor.run_gobuster_dns", return_value=src),
+        ):
+            tools = _run_active_enum("example.com", wordlist="/tmp/w.txt", progress_cb=None)
+        error_tools = [t for t in tools if t.available is False]
+        assert len(error_tools) == 1
+        assert "boom" in (error_tools[0].error or "")
+        assert error_tools[0].mode == EnumMode.ACTIVE
+
+    def test_active_enum_finish_cb_error_invoked_on_exception(self) -> None:
+        """finish_cb receives (name, error_str, False) when a runner raises."""
+        finish_calls: list[tuple] = []
+        src = _make_source()
+        with (
+            patch("subdomainenum.assessor.run_amass", side_effect=RuntimeError("boom")),
+            patch("subdomainenum.assessor.run_dnsrecon", return_value=src),
+            patch("subdomainenum.assessor.run_gobuster_dns", return_value=src),
+        ):
+            _run_active_enum(
+                "example.com", wordlist="/tmp/w.txt", progress_cb=None,
+                finish_cb=lambda name, err, timed_out: finish_calls.append((name, err, timed_out)),
+            )
+        errored = [(n, e) for n, e, _ in finish_calls if e is not None]
+        assert len(errored) == 1
+        assert "boom" in errored[0][1]
+
+
+class TestFfufParallelism:
+    """ffuf must run in parallel across URLs."""
+
+    def test_ffuf_runs_urls_in_parallel(self) -> None:
+        """Three URLs reach a Barrier(3) → all three ffuf workers are concurrent."""
+        import threading
+        barrier = threading.Barrier(3, timeout=2.0)
+
+        def fake_ffuf(domain, **kwargs):
+            barrier.wait()
+            return []
+
+        urls = ["http://1.1.1.1", "http://2.2.2.2", "http://3.3.3.3"]
+        with patch("subdomainenum.assessor.run_ffuf", side_effect=fake_ffuf):
+            tool, vhosts = _run_ffuf_fanout(
+                "example.com", wordlist="/tmp/w.txt", urls=urls, progress_cb=None,
+            )
+        assert tool.name == "ffuf"
+        assert tool.available is True
+        assert vhosts == []
+
+    def test_ffuf_fanout_deduplicates_vhosts_across_urls(self) -> None:
+        """The same vhost found by multiple URL workers appears once in the result."""
+        hit = VhostResult(vhost="admin.example.com", status_code=200, content_length=100)
+        with patch("subdomainenum.assessor.run_ffuf", return_value=[hit]):
+            tool, vhosts = _run_ffuf_fanout(
+                "example.com", wordlist="/tmp/w.txt",
+                urls=["http://1.2.3.4", "http://5.6.7.8"], progress_cb=None,
+            )
+        assert len(vhosts) == 1
+        assert tool.subdomains == ["admin.example.com"]
+
+    def test_ffuf_single_url_keeps_plain_key(self) -> None:
+        """Single-URL fan-out uses 'ffuf' as the debug/finish key, not 'ffuf 1'."""
+        finish_calls: list[tuple] = []
+        with patch("subdomainenum.assessor.run_ffuf", return_value=[]):
+            _run_ffuf_fanout(
+                "example.com", wordlist="/tmp/w.txt", urls=["http://1.2.3.4"],
+                progress_cb=None,
+                finish_cb=lambda name, err, timed_out: finish_calls.append((name, err, timed_out)),
+            )
+        names = [n for n, _, _ in finish_calls]
+        assert names == ["ffuf"]
+
+    def test_ffuf_multi_url_keys_are_numbered(self) -> None:
+        """Multi-URL fan-out uses 'ffuf 1' and 'ffuf 2' keys."""
+        finish_calls: list[tuple] = []
+        with patch("subdomainenum.assessor.run_ffuf", return_value=[]):
+            _run_ffuf_fanout(
+                "example.com", wordlist="/tmp/w.txt",
+                urls=["http://1.1.1.1", "http://2.2.2.2"], progress_cb=None,
+                finish_cb=lambda name, err, timed_out: finish_calls.append((name, err, timed_out)),
+            )
+        names = {n for n, _, _ in finish_calls}
+        assert names == {"ffuf 1", "ffuf 2"}
+
+    def test_ffuf_empty_urls_returns_unavailable_tool(self) -> None:
+        """With no URLs, the aggregated ffuf ToolResult is marked unavailable."""
+        finish_calls: list[tuple] = []
+        tool, vhosts = _run_ffuf_fanout(
+            "example.com", wordlist="/tmp/w.txt", urls=[],
+            progress_cb=None,
+            finish_cb=lambda name, err, timed_out: finish_calls.append((name, err, timed_out)),
+        )
+        assert tool.available is False
+        assert tool.error == "no URL resolved"
+        assert vhosts == []
+        assert finish_calls == [("ffuf", "no URL resolved", False)]
+
+    def test_ffuf_worker_exception_captured(self) -> None:
+        """If one ffuf worker raises, other URLs still complete and finish_cb records error."""
+        call_count = {"n": 0}
+        finish_calls: list[tuple] = []
+
+        def flaky_ffuf(domain, **kwargs):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                raise RuntimeError("ffuf crashed")
+            return []
+
+        with patch("subdomainenum.assessor.run_ffuf", side_effect=flaky_ffuf):
+            tool, vhosts = _run_ffuf_fanout(
+                "example.com", wordlist="/tmp/w.txt",
+                urls=["http://1.1.1.1", "http://2.2.2.2"], progress_cb=None,
+                finish_cb=lambda name, err, timed_out: finish_calls.append((name, err, timed_out)),
+            )
+        errored = [(n, e) for n, e, _ in finish_calls if e is not None]
+        assert len(errored) == 1
+        assert "ffuf crashed" in errored[0][1]
+        assert tool.name == "ffuf"
+
+    def test_ffuf_progress_cb_invoked(self) -> None:
+        """Covers the _cb lambda body inside _run_ffuf_fanout."""
+        calls: list[str] = []
+        with patch("subdomainenum.assessor.run_ffuf", return_value=[]):
+            _run_ffuf_fanout(
+                "example.com", wordlist="/tmp/w.txt", urls=["http://1.1.1.1"],
+                progress_cb=calls.append,
+            )
+        assert any("ffuf" in m for m in calls)
+
+
+class TestAllModePhaseFusion:
+    """In ALL mode, _run_passive and _run_active_enum run concurrently in an outer pool."""
+
+    def test_all_mode_fuses_phases(self) -> None:
+        """Passive helpers and active-enum helpers all hit a Barrier(8) → fused."""
+        import threading
+        barrier = threading.Barrier(8, timeout=2.0)
+
+        def make_fake(name):
+            def _fake(*args, **kwargs):
+                barrier.wait()
+                return _make_source(name=name)
+            return _fake
+
+        with (
+            patch("subdomainenum.assessor.run_subfinder", side_effect=make_fake("subfinder")),
+            patch("subdomainenum.assessor.run_amass", side_effect=make_fake("amass")),
+            patch("subdomainenum.assessor.run_findomain", side_effect=make_fake("findomain")),
+            patch("subdomainenum.assessor.run_assetfinder", side_effect=make_fake("assetfinder")),
+            patch("subdomainenum.assessor.run_dnsrecon", side_effect=make_fake("dnsrecon")),
+            patch("subdomainenum.assessor.run_gobuster_dns", side_effect=make_fake("gobuster")),
+            patch("subdomainenum.assessor._run_ffuf_fanout",
+                  return_value=(ToolResult(name="ffuf", mode=EnumMode.ACTIVE), [])),
+            patch("subdomainenum.assessor._resolve_all", return_value=[]),
+            patch("subdomainenum.assessor.resolve_ips", return_value=[]),
+        ):
+            report = assess("example.com", mode=EnumMode.ALL, wordlist="/tmp/w.txt")
+
+        # All 8 tools produced results: 5 passive (amass counted once here as passive) + 3 active enum.
+        # But run_amass and run_dnsrecon are both called — once in each phase — so the barrier needs 8 hits.
+        # Reaching the barrier proves concurrency.
+        tool_names = [t.name for t in report.tools]
+        assert tool_names.count("amass") == 2  # passive + active
+        assert tool_names.count("dnsrecon") == 2
+        assert "subfinder" in tool_names
+        assert "gobuster" in tool_names
+
+
+class TestResolveAllCache:
+    """_resolve_all reuses pre_resolved IPs instead of calling resolve_ips again."""
+
+    def test_cached_fqdn_uses_cached_ips(self) -> None:
+        """A cached fqdn produces an ALIVE SubdomainResult without calling resolve_ips."""
+        with patch("subdomainenum.assessor.resolve_ips") as mock_resolve:
+            results = _resolve_all(
+                ["a.example.com"],
+                {"a.example.com": ["subfinder"]},
+                pre_resolved={"a.example.com": ["1.2.3.4"]},
+            )
+        mock_resolve.assert_not_called()
+        assert results[0].ip_addresses == ["1.2.3.4"]
+        assert results[0].status == Status.ALIVE
+        assert results[0].alive is True
+
+    def test_cached_empty_list_treated_as_dead(self) -> None:
+        """A cached empty list means 'resolved, no IPs' — DEAD without a live DNS call."""
+        with patch("subdomainenum.assessor.resolve_ips") as mock_resolve:
+            results = _resolve_all(
+                ["dead.example.com"],
+                {},
+                pre_resolved={"dead.example.com": []},
+            )
+        mock_resolve.assert_not_called()
+        assert results[0].status == Status.DEAD
+        assert results[0].alive is False
+
+    def test_uncached_fqdn_falls_through_to_live_resolution(self) -> None:
+        """An fqdn absent from the cache still triggers a live resolve_ips call."""
+        with patch("subdomainenum.assessor.resolve_ips", return_value=["9.9.9.9"]) as mock_resolve:
+            results = _resolve_all(
+                ["a.example.com", "b.example.com"],
+                {},
+                pre_resolved={"a.example.com": ["1.2.3.4"]},
+            )
+        # resolve_ips called exactly once (for "b.example.com")
+        assert mock_resolve.call_count == 1
+        by_fqdn = {r.fqdn: r for r in results}
+        assert by_fqdn["a.example.com"].ip_addresses == ["1.2.3.4"]
+        assert by_fqdn["b.example.com"].ip_addresses == ["9.9.9.9"]
+
+    def test_none_pre_resolved_behaves_as_before(self) -> None:
+        """Omitting pre_resolved matches the pre-cache behaviour (backwards compatibility)."""
+        with patch("subdomainenum.assessor.resolve_ips", return_value=["1.2.3.4"]):
+            results = _resolve_all(["sub.example.com"], {})
+        assert results[0].ip_addresses == ["1.2.3.4"]
+
+    def test_empty_fqdns_with_nonempty_cache(self) -> None:
+        """Empty fqdn list + populated cache still returns empty results without crashing."""
+        results = _resolve_all([], {}, pre_resolved={"ignored.example.com": ["1.2.3.4"]})
+        assert results == []
