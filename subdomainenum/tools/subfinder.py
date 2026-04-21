@@ -14,6 +14,7 @@ def run_subfinder(
     timeout: int = 120,
     line_cb: Callable[[str], None] | None = None,
     cmd_cb: Callable[[str], None] | None = None,
+    fqdn_cb: Callable[[str], None] | None = None,
 ) -> ToolResult:
     """Run subfinder for *domain* and return a :class:`~subdomainenum.models.ToolResult`.
 
@@ -21,12 +22,28 @@ def run_subfinder(
     :param timeout: Maximum seconds to wait for subfinder.
     :param line_cb: Optional callback invoked with each output line (for debug mode).
     :param cmd_cb: Optional callback invoked once with the full command string before launch.
+    :param fqdn_cb: Optional callback invoked with each in-scope FQDN as soon as
+        subfinder emits it. In ``-silent`` mode subfinder emits one FQDN per
+        line, so every line that matches the target domain or its suffix is
+        forwarded after lower-casing and stripping.
     :rtype: ToolResult
     """
     result = ToolResult(name="subfinder")
     cmd = ["subfinder", "-d", domain, "-silent", "-all"]
+
+    suffix = f".{domain}"
+
+    def _on_line(line: str) -> None:
+        if line_cb is not None:
+            line_cb(line)
+        if fqdn_cb is None:
+            return
+        fqdn = line.lower().strip()
+        if fqdn and (fqdn == domain or fqdn.endswith(suffix)):
+            fqdn_cb(fqdn)
+
     try:
-        lines, timed_out = run_tool(cmd, timeout=timeout, line_cb=line_cb, cmd_cb=cmd_cb)
+        lines, timed_out = run_tool(cmd, timeout=timeout, line_cb=_on_line, cmd_cb=cmd_cb)
     except RuntimeError as exc:
         result.available = False
         result.error = str(exc)

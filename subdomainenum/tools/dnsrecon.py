@@ -20,10 +20,11 @@ _PASSIVE_TYPES = "std,srv"
 #   when -n is absent, so no resolver argument needs to be plumbed in.
 _PASSIVE_SNOOP_TYPE = "snoop"
 
-# Active enumeration types (require -D wordlist):
-#   brt — brute-force subdomain/host names using -D wordlist
-# Extended with boolean flags: -a (AXFR), -z (DNSSEC zone walk)
-_ACTIVE_TYPES = "brt"
+# Active-phase DNS brute-force is delegated to ``gobuster dns`` (higher
+# concurrency, faster turnaround); dnsrecon's ``brt`` type is intentionally
+# no longer emitted. AXFR (``-a``) and DNSSEC zone walk (``-z``) are cheap
+# and remain in the active invocation alongside ``std,srv``.
+_ACTIVE_TYPES = "std,srv"
 
 # dnsrecon consults SHODAN_API_KEY as the fallback for --shodan-key. When the
 # env var is present we enable --shodan and --shodan-active during passive
@@ -46,6 +47,7 @@ def run_dnsrecon(
     disable_check_bindversion: bool = False,
     line_cb: Callable[[str], None] | None = None,
     cmd_cb: Callable[[str], None] | None = None,
+    fqdn_cb: Callable[[str], None] | None = None,
 ) -> ToolResult:
     """Run dnsrecon for *domain* using the enumeration types appropriate for *mode*.
 
@@ -59,38 +61,42 @@ def run_dnsrecon(
       ``SHODAN_API_KEY`` environment variable is set, ``--shodan`` and
       ``--shodan-active`` are added to enrich netblocks discovered via ``-s``
       and ``-w``.
-    - ``active`` — ``-t brt`` with AXFR (``-a``), DNSSEC zone walk (``-z``), and
-      wildcard filter (``-f``) flags; requires a wordlist.
-    - ``all`` — combines passive and active type sets (including ``snoop``,
-      since a wordlist is mandatory) and all flags; Shodan enrichment is also
-      enabled when ``SHODAN_API_KEY`` is set.
+    - ``active`` — ``-t std,srv`` with AXFR (``-a``) and DNSSEC zone walk
+      (``-z``) flags. Brute-force (``brt``) is delegated to ``gobuster dns``
+      and no longer emitted here, so a wordlist is *not* required in this
+      mode — it is silently ignored if supplied.
+    - ``all`` — ``-t std,srv,snoop`` with all passive flags plus ``-a``/``-z``;
+      a wordlist is mandatory (for ``snoop``). Shodan enrichment is enabled
+      when ``SHODAN_API_KEY`` is set.
 
     Excluded:
+    - ``brt`` — superseded by ``gobuster dns`` in the active pool
     - ``rvl`` — requires ``-r`` IP range, not available here
     - ``tld`` — tests TLD variations, not subdomain discovery
 
     :param domain: Target base domain.
     :param mode: Enumeration mode controlling which types and flags are used.
-    :param wordlist: Path to the wordlist file. Required for active/all modes;
-        optional for passive mode, where it unlocks ``snoop`` cache snooping.
+    :param wordlist: Path to the wordlist file. Required in ALL mode for the
+        ``snoop`` cache-snoop pass; optional in PASSIVE mode where it unlocks
+        ``snoop``; ignored in ACTIVE mode (brute-force is handled by gobuster).
     :param timeout: Maximum seconds to wait for dnsrecon.
     :param threads: Number of threads for dnsrecon (``--threads``). ``None`` uses the dnsrecon default.
-    :param filter_wildcard: Only applies in active and all modes. When ``True`` (default), pass
-        ``-f`` to filter wildcard records from brute-force output. When ``False``, pass ``--iw``
-        to continue brute-forcing even if a wildcard record is detected. The two flags are
-        mutually exclusive. Has no effect in passive mode.
+    :param filter_wildcard: Accepted for API compatibility but now a no-op —
+        the brute-force type that required wildcard filtering has been dropped
+        in favour of gobuster's own wildcard handling.
     :param disable_check_nxdomain: Pass ``--disable_check_nxdomain`` to skip NXDOMAIN hijack detection.
     :param disable_check_recursion: Pass ``--disable_check_recursion`` to skip recursion checks.
     :param disable_check_bindversion: Pass ``--disable_check_bindversion`` to skip BIND version checks.
     :param line_cb: Optional callback invoked with each output line (debug mode).
     :param cmd_cb: Optional callback invoked once with the full command string before launch.
+    :param fqdn_cb: Optional callback invoked with each in-scope FQDN as soon as
+        it is parsed, allowing callers to start downstream work (e.g. DNS
+        resolution) in parallel with enumeration.
     :rtype: ToolResult
     """
+    _ = filter_wildcard  # retained for API compatibility; see docstring
     result = ToolResult(name="dnsrecon")
 
-    # When a wordlist is present we can unlock snoop in passive paths; the
-    # command only receives -D once, even though snoop (passive) and brt
-    # (active) both need it.
     has_wordlist = bool(wordlist)
 
     if mode == EnumMode.PASSIVE:
@@ -104,9 +110,9 @@ def run_dnsrecon(
         types = _ACTIVE_TYPES
         use_passive_flags = False
         use_active_flags = True
-        use_wordlist = True
+        use_wordlist = False  # no brt → wordlist is unused
     else:  # ALL — wordlist is mandatory, so snoop is always on
-        types = f"{_PASSIVE_TYPES},{_PASSIVE_SNOOP_TYPE},{_ACTIVE_TYPES}"
+        types = f"{_PASSIVE_TYPES},{_PASSIVE_SNOOP_TYPE}"
         use_passive_flags = True
         use_active_flags = True
         use_wordlist = True
@@ -136,27 +142,45 @@ def run_dnsrecon(
 
     if use_active_flags:
         cmd += ["-a", "-z"]  # AXFR zone transfer, DNSSEC zone walk
-        if filter_wildcard:
-            cmd += ["-f"]  # filter wildcard records from brute-force output
-        else:
-            cmd += ["--iw"]  # continue brute-forcing even if wildcard detected
+
+    suffix = f".{domain}"
+    streamed_seen: set[str] = set()
+    streamed: list[str] = []
+
+    def _on_line(line: str) -> None:
+        if line_cb is not None:
+            line_cb(line)
+        if fqdn_cb is None:
+            return
+        for raw in line.split():
+            part = raw.lower()
+            if part in streamed_seen:
+                continue
+            if part == domain or part.endswith(suffix):
+                streamed_seen.add(part)
+                streamed.append(part)
+                fqdn_cb(part)
 
     try:
-        lines, timed_out = run_tool(cmd, timeout=timeout, line_cb=line_cb, cmd_cb=cmd_cb, capture_stderr=True, ignore_returncode=True)
+        lines, timed_out = run_tool(
+            cmd, timeout=timeout, line_cb=_on_line, cmd_cb=cmd_cb,
+            capture_stderr=True, ignore_returncode=True,
+        )
     except RuntimeError as exc:
         result.available = False
         result.error = str(exc)
         return result
 
-    # dnsrecon outputs lines like: "[*] A sub.example.com 1.2.3.4"
-    suffix = f".{domain}"
-    for line in lines:
-        parts = line.split()
-        for part in parts:
-            part = part.lower()
-            if part == domain or part.endswith(suffix):
-                if part not in result.subdomains:
-                    result.subdomains.append(part)
+    if fqdn_cb is not None:
+        result.subdomains = streamed
+    else:
+        # dnsrecon outputs lines like: "[*] A sub.example.com 1.2.3.4"
+        for line in lines:
+            for raw in line.split():
+                part = raw.lower()
+                if part == domain or part.endswith(suffix):
+                    if part not in result.subdomains:
+                        result.subdomains.append(part)
 
     result.timed_out = timed_out
     return result

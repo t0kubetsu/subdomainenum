@@ -424,16 +424,17 @@ class TestRunPassive:
 
 class TestRunActive:
     def test_returns_sources_without_urls(self) -> None:
+        """Active pool now contains amass + gobuster (dnsrecon delegated to passive)
+        plus the ffuf sentinel marked unavailable when no URLs are provided → 3 sources."""
         src = _make_source()
         with (
             patch("subdomainenum.assessor.run_amass", return_value=src),
-            patch("subdomainenum.assessor.run_dnsrecon", return_value=src),
             patch("subdomainenum.assessor.run_gobuster_dns", return_value=src),
             patch("subdomainenum.assessor.run_ffuf") as mock_ffuf,
         ):
             sources, vhosts = _run_active("example.com", wordlist="/tmp/w.txt", urls=[], progress_cb=None)
         mock_ffuf.assert_not_called()
-        assert len(sources) == 4
+        assert len(sources) == 3
         ffuf_src = next(s for s in sources if s.name == "ffuf")
         assert ffuf_src.available is False
 
@@ -465,7 +466,7 @@ class TestRunActive:
         """Cover the lambda body in _line_cb by having a mock call line_cb."""
         debug_calls: list[tuple] = []
 
-        def fake_dnsrecon(domain, *, wordlist, timeout=300, line_cb=None, **kwargs):
+        def fake_gobuster(domain, *, wordlist, timeout=300, line_cb=None, **kwargs):
             if line_cb:
                 line_cb("output line")
             return _make_source()
@@ -473,8 +474,7 @@ class TestRunActive:
         src = _make_source()
         with (
             patch("subdomainenum.assessor.run_amass", return_value=src),
-            patch("subdomainenum.assessor.run_dnsrecon", side_effect=fake_dnsrecon),
-            patch("subdomainenum.assessor.run_gobuster_dns", return_value=src),
+            patch("subdomainenum.assessor.run_gobuster_dns", side_effect=fake_gobuster),
         ):
             _run_active(
                 "example.com",
@@ -483,22 +483,21 @@ class TestRunActive:
                 progress_cb=None,
                 debug_cb=lambda s, line: debug_calls.append((s, line)),
             )
-        assert ("dnsrecon", "output line") in debug_calls
+        assert ("gobuster", "output line") in debug_calls
 
     def test_cmd_cb_lambda_invoked(self) -> None:
         """Cover the lambda body in _cmd_cb for active sources."""
         cmd_calls: list[tuple] = []
 
-        def fake_dnsrecon(domain, *, wordlist, timeout=300, cmd_cb=None, **kwargs):
+        def fake_gobuster(domain, *, wordlist, timeout=300, cmd_cb=None, **kwargs):
             if cmd_cb:
-                cmd_cb("dnsrecon -d example.com -w /tmp/w.txt")
+                cmd_cb("gobuster dns -d example.com -w /tmp/w.txt")
             return _make_source()
 
         src = _make_source()
         with (
             patch("subdomainenum.assessor.run_amass", return_value=src),
-            patch("subdomainenum.assessor.run_dnsrecon", side_effect=fake_dnsrecon),
-            patch("subdomainenum.assessor.run_gobuster_dns", return_value=src),
+            patch("subdomainenum.assessor.run_gobuster_dns", side_effect=fake_gobuster),
         ):
             _run_active(
                 "example.com",
@@ -507,15 +506,15 @@ class TestRunActive:
                 progress_cb=None,
                 cmd_cb=lambda s, c: cmd_calls.append((s, c)),
             )
-        assert any(s == "dnsrecon" for s, _ in cmd_calls)
+        assert any(s == "gobuster" for s, _ in cmd_calls)
 
     def test_finish_cb_called(self) -> None:
-        """finish_cb is called for each active source with (name, error_or_none, timed_out)."""
+        """finish_cb is called for each active source with (name, error_or_none, timed_out).
+        dnsrecon is *not* in the active pool — it runs only in the passive phase."""
         finish_calls: list[tuple] = []
         src = _make_source()
         with (
             patch("subdomainenum.assessor.run_amass", return_value=src),
-            patch("subdomainenum.assessor.run_dnsrecon", return_value=src),
             patch("subdomainenum.assessor.run_gobuster_dns", return_value=src),
         ):
             _run_active(
@@ -527,9 +526,9 @@ class TestRunActive:
             )
         names = [n for n, _, _ in finish_calls]
         assert "amass" in names
-        assert "dnsrecon" in names
         assert "gobuster" in names
         assert "ffuf" in names
+        assert "dnsrecon" not in names
         ffuf_err = next(err for name, err, _ in finish_calls if name == "ffuf")
         assert ffuf_err is not None  # skipped without urls
 
@@ -718,9 +717,11 @@ class TestPhaseAwareKeys:
         assert "amass active" in names
         assert "amass" not in names
 
-    def test_active_all_mode_dnsrecon_key_is_suffixed(self) -> None:
+    def test_active_all_mode_dnsrecon_absent_from_active_pool(self) -> None:
+        """dnsrecon is delegated to the passive phase; no active key (with or
+        without suffix) should appear in ALL mode's active finish_cb names."""
         names = self._active_finish_names(EnumMode.ALL)
-        assert "dnsrecon active" in names
+        assert "dnsrecon active" not in names
         assert "dnsrecon" not in names
 
     def test_active_all_mode_other_tools_keep_plain_keys(self) -> None:
@@ -732,15 +733,14 @@ class TestPhaseAwareKeys:
         """In ACTIVE-only mode no suffix is added."""
         names = self._active_finish_names(EnumMode.ACTIVE)
         assert "amass" in names
-        assert "dnsrecon" in names
         assert "amass active" not in names
-        assert "dnsrecon active" not in names
+        assert "dnsrecon" not in names
 
     def test_active_no_overall_mode_plain_keys(self) -> None:
         """Without overall_mode (None) no suffix is added."""
         names = self._active_finish_names(None)
         assert "amass" in names
-        assert "dnsrecon" in names
+        assert "dnsrecon" not in names
 
     # --- debug_cb key routing in ALL mode ---
 
@@ -849,20 +849,17 @@ class TestPhaseAwareKeys:
 
 
 class TestActiveParallelism:
-    """The three non-ffuf active tools must run concurrently in _run_active_enum."""
+    """The non-ffuf active tools must run concurrently in _run_active_enum."""
 
     def test_active_tools_run_in_parallel(self) -> None:
-        """amass, dnsrecon, gobuster all reach a Barrier(3) together → proves concurrency."""
+        """amass and gobuster both reach a Barrier(2) together → proves concurrency.
+        dnsrecon is no longer part of the active pool."""
         import threading
-        barrier = threading.Barrier(3, timeout=2.0)
+        barrier = threading.Barrier(2, timeout=2.0)
 
         def fake_amass(domain, **kwargs):
             barrier.wait()
             return _make_source(name="amass")
-
-        def fake_dnsrecon(domain, **kwargs):
-            barrier.wait()
-            return _make_source(name="dnsrecon")
 
         def fake_gobuster(domain, **kwargs):
             barrier.wait()
@@ -870,15 +867,14 @@ class TestActiveParallelism:
 
         with (
             patch("subdomainenum.assessor.run_amass", side_effect=fake_amass),
-            patch("subdomainenum.assessor.run_dnsrecon", side_effect=fake_dnsrecon),
             patch("subdomainenum.assessor.run_gobuster_dns", side_effect=fake_gobuster),
         ):
             tools = _run_active_enum("example.com", wordlist="/tmp/w.txt", progress_cb=None)
 
-        # Barrier did not raise BrokenBarrierError → all 3 reached the barrier together.
-        assert len(tools) == 3
+        # Barrier did not raise BrokenBarrierError → both reached the barrier together.
+        assert len(tools) == 2
         names = {t.name for t in tools}
-        assert names == {"amass", "dnsrecon", "gobuster"}
+        assert names == {"amass", "gobuster"}
 
     def test_active_enum_captures_unexpected_exception(self) -> None:
         """If a tool runner raises, the pool captures it as ToolResult(available=False)."""
@@ -1018,9 +1014,10 @@ class TestAllModePhaseFusion:
     """In ALL mode, _run_passive and _run_active_enum run concurrently in an outer pool."""
 
     def test_all_mode_fuses_phases(self) -> None:
-        """Passive helpers and active-enum helpers all hit a Barrier(8) → fused."""
+        """Passive helpers (5) and active-enum helpers (2) all hit a Barrier(7) → fused.
+        run_amass is called in both phases (2 hits) and run_dnsrecon only in passive (1 hit)."""
         import threading
-        barrier = threading.Barrier(8, timeout=2.0)
+        barrier = threading.Barrier(7, timeout=2.0)
 
         def make_fake(name):
             def _fake(*args, **kwargs):
@@ -1042,12 +1039,11 @@ class TestAllModePhaseFusion:
         ):
             report = assess("example.com", mode=EnumMode.ALL, wordlist="/tmp/w.txt")
 
-        # All 8 tools produced results: 5 passive (amass counted once here as passive) + 3 active enum.
-        # But run_amass and run_dnsrecon are both called — once in each phase — so the barrier needs 8 hits.
-        # Reaching the barrier proves concurrency.
+        # Reaching the barrier proves concurrency. amass runs in both phases (2×);
+        # dnsrecon only passively (1×); gobuster only actively (1×).
         tool_names = [t.name for t in report.tools]
         assert tool_names.count("amass") == 2  # passive + active
-        assert tool_names.count("dnsrecon") == 2
+        assert tool_names.count("dnsrecon") == 1  # passive only
         assert "subfinder" in tool_names
         assert "gobuster" in tool_names
 
@@ -1104,3 +1100,35 @@ class TestResolveAllCache:
         """Empty fqdn list + populated cache still returns empty results without crashing."""
         results = _resolve_all([], {}, pre_resolved={"ignored.example.com": ["1.2.3.4"]})
         assert results == []
+
+
+class TestComputeFfufUrlsFallback:
+    """_compute_ffuf_urls without a StreamingResolver falls back to a local pool."""
+
+    def test_fallback_resolves_via_local_pool(self) -> None:
+        from subdomainenum.assessor import _compute_ffuf_urls
+        with patch(
+            "subdomainenum.assessor.resolve_ips",
+            side_effect=lambda f: ["1.2.3.4"] if f == "example.com" else ["5.6.7.8"],
+        ):
+            urls, cache = _compute_ffuf_urls(
+                "example.com", url=None,
+                passive_fqdns=["sub.example.com"],
+                resolver=None,
+            )
+        assert "http://1.2.3.4" in urls
+        assert "http://5.6.7.8" in urls
+        assert cache["example.com"] == ["1.2.3.4"]
+        assert cache["sub.example.com"] == ["5.6.7.8"]
+
+    def test_explicit_url_skips_dns_entirely(self) -> None:
+        from subdomainenum.assessor import _compute_ffuf_urls
+        with patch("subdomainenum.assessor.resolve_ips") as mock_resolve:
+            urls, cache = _compute_ffuf_urls(
+                "example.com", url="http://10.0.0.1",
+                passive_fqdns=["sub.example.com"],
+                resolver=None,
+            )
+        mock_resolve.assert_not_called()
+        assert urls == ["http://10.0.0.1"]
+        assert cache == {}

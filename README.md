@@ -13,8 +13,8 @@ $ subdomainenum check example.com
 ```
 
 ![Python](https://img.shields.io/badge/python-%3E%3D3.11-blue)
-![Tests](https://img.shields.io/badge/tests-360%20passing-brightgreen)
-![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen)
+![Tests](https://img.shields.io/badge/tests-381%20passing-brightgreen)
+![Coverage](https://img.shields.io/badge/coverage-99%25-brightgreen)
 ![License](https://img.shields.io/badge/license-GPLv3-lightgrey)
 
 ---
@@ -346,7 +346,7 @@ pytest tests/test_assessor.py -v
 pytest tests/test_cli.py::TestCheckCommand -v
 ```
 
-The test suite has **360 tests** and achieves **100% coverage** across all modules.
+The test suite has **381 tests** and achieves **99% coverage** across all modules.
 
 All DNS I/O (`dns.resolver.Resolver.resolve`), TLS
 sockets, and subprocess calls are mocked at the boundary — no test touches a real

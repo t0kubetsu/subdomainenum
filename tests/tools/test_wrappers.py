@@ -240,23 +240,25 @@ class TestRunAmass:
         assert "-brute" not in cmd
         assert "-w" not in cmd
 
-    def test_brute_flag_with_wordlist_in_active_mode(self) -> None:
-        """wordlist + ACTIVE mode → -brute -w <path> in command."""
+    def test_brute_flag_dropped_in_active_mode_even_with_wordlist(self) -> None:
+        """Brute-force is delegated to gobuster → amass must not emit -brute/-w
+        even when a wordlist is passed, so the two tools don't duplicate work."""
         with patch("subdomainenum.tools.amass.run_tool", return_value=([], False)) as mock:
             run_amass("example.com", mode=EnumMode.ACTIVE, wordlist="/tmp/words.txt")
             cmd = mock.call_args[0][0]
-        assert "-brute" in cmd
-        assert "-w" in cmd
-        assert "/tmp/words.txt" in cmd
+        assert "-brute" not in cmd
+        assert "-w" not in cmd
+        assert "/tmp/words.txt" not in cmd
 
-    def test_brute_flag_with_wordlist_in_all_mode(self) -> None:
-        """wordlist + ALL mode → -brute -w <path> in command."""
+    def test_brute_flag_dropped_in_all_mode_even_with_wordlist(self) -> None:
+        """Brute-force is delegated to gobuster → amass must not emit -brute/-w
+        even when a wordlist is passed, so the two tools don't duplicate work."""
         with patch("subdomainenum.tools.amass.run_tool", return_value=([], False)) as mock:
             run_amass("example.com", mode=EnumMode.ALL, wordlist="/tmp/words.txt")
             cmd = mock.call_args[0][0]
-        assert "-brute" in cmd
-        assert "-w" in cmd
-        assert "/tmp/words.txt" in cmd
+        assert "-brute" not in cmd
+        assert "-w" not in cmd
+        assert "/tmp/words.txt" not in cmd
 
     def test_no_brute_flag_in_passive_mode_with_wordlist(self) -> None:
         """wordlist + PASSIVE mode → -brute must not appear (passive ignores wordlist)."""
@@ -378,14 +380,16 @@ class TestRunDnsrecon:
             run_dnsrecon("example.com", mode=EnumMode.ALL, wordlist="/tmp/words.txt")
         assert mock.call_count == 1
 
-    def test_all_mode_uses_std_srv_and_brt_types(self) -> None:
+    def test_all_mode_uses_std_srv_snoop_and_excludes_brt(self) -> None:
+        """ALL mode emits std,srv,snoop — brt is delegated to gobuster."""
         with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock:
             run_dnsrecon("example.com", mode=EnumMode.ALL, wordlist="/tmp/words.txt")
             cmd = mock.call_args[0][0]
         type_val = cmd[cmd.index("-t") + 1]
         assert "std" in type_val
         assert "srv" in type_val
-        assert "brt" in type_val
+        assert "snoop" in type_val
+        assert "brt" not in type_val
 
     def test_all_mode_includes_passive_and_active_flags(self) -> None:
         with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock:
@@ -425,22 +429,26 @@ class TestRunDnsrecon:
         assert "-z" not in cmd
         assert "-D" not in cmd
 
-    def test_active_mode_uses_brt_type(self) -> None:
+    def test_active_mode_uses_std_srv_and_excludes_brt(self) -> None:
+        """Active mode emits std,srv only — brt has been delegated to gobuster."""
         with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock:
             run_dnsrecon("example.com", mode=EnumMode.ACTIVE, wordlist="/tmp/words.txt")
             cmd = mock.call_args[0][0]
         type_val = cmd[cmd.index("-t") + 1]
-        assert "brt" in type_val
-        assert "std" not in type_val
+        assert "std" in type_val
+        assert "srv" in type_val
+        assert "brt" not in type_val
 
-    def test_active_mode_includes_active_flags_and_wordlist(self) -> None:
+    def test_active_mode_includes_active_flags_and_ignores_wordlist(self) -> None:
+        """Active mode keeps AXFR and DNSSEC zone walk but ignores the wordlist
+        since brt has been removed."""
         with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock:
             run_dnsrecon("example.com", mode=EnumMode.ACTIVE, wordlist="/tmp/words.txt")
             cmd = mock.call_args[0][0]
         assert "-a" in cmd
         assert "-z" in cmd
-        assert "-D" in cmd
-        assert "/tmp/words.txt" in cmd
+        assert "-D" not in cmd
+        assert "/tmp/words.txt" not in cmd
 
     def test_active_mode_excludes_passive_flags(self) -> None:
         with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock:
@@ -517,21 +525,23 @@ class TestRunDnsrecon:
             result = run_dnsrecon("example.com", mode=EnumMode.PASSIVE)
         assert result.timed_out is False
 
-    def test_active_mode_filter_wildcard_default_adds_f(self) -> None:
+    def test_active_mode_never_adds_f_or_iw(self) -> None:
+        """-f and --iw are brt-only; with brt removed, neither flag should appear."""
         with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock:
             run_dnsrecon("example.com", mode=EnumMode.ACTIVE, wordlist="/tmp/words.txt")
             cmd = mock.call_args[0][0]
-        assert "-f" in cmd
+        assert "-f" not in cmd
         assert "--iw" not in cmd
 
-    def test_active_mode_no_filter_wildcard_adds_iw(self) -> None:
+    def test_filter_wildcard_false_is_a_noop(self) -> None:
+        """filter_wildcard=False is accepted for API compat but must not emit --iw."""
         with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock:
             run_dnsrecon(
                 "example.com", mode=EnumMode.ACTIVE, wordlist="/tmp/words.txt",
                 filter_wildcard=False,
             )
             cmd = mock.call_args[0][0]
-        assert "--iw" in cmd
+        assert "--iw" not in cmd
         assert "-f" not in cmd
 
     def test_passive_mode_excludes_f_and_iw(self) -> None:
@@ -580,21 +590,23 @@ class TestRunDnsrecon:
         assert "--disable_check_recursion" not in cmd
         assert "--disable_check_bindversion" not in cmd
 
-    def test_all_mode_filter_wildcard_default_adds_f(self) -> None:
+    def test_all_mode_never_adds_f_or_iw(self) -> None:
+        """-f and --iw are brt-only; with brt removed from ALL mode, neither flag appears."""
         with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock:
             run_dnsrecon("example.com", mode=EnumMode.ALL, wordlist="/tmp/words.txt")
             cmd = mock.call_args[0][0]
-        assert "-f" in cmd
+        assert "-f" not in cmd
         assert "--iw" not in cmd
 
-    def test_all_mode_no_filter_wildcard_adds_iw(self) -> None:
+    def test_all_mode_filter_wildcard_false_is_a_noop(self) -> None:
+        """filter_wildcard=False is accepted in ALL mode too but must not emit --iw."""
         with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock:
             run_dnsrecon(
                 "example.com", mode=EnumMode.ALL, wordlist="/tmp/words.txt",
                 filter_wildcard=False,
             )
             cmd = mock.call_args[0][0]
-        assert "--iw" in cmd
+        assert "--iw" not in cmd
         assert "-f" not in cmd
 
     # --- Shodan enrichment (opt-in via SHODAN_API_KEY env var) ---
@@ -685,13 +697,13 @@ class TestRunDnsrecon:
         assert "/tmp/snoop.txt" in cmd
 
     def test_all_mode_includes_snoop_type(self) -> None:
-        """ALL mode always has a wordlist, so snoop must be enabled alongside brt."""
+        """ALL mode always has a wordlist, so snoop must be enabled (brt is delegated to gobuster)."""
         with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock:
             run_dnsrecon("example.com", mode=EnumMode.ALL, wordlist="/tmp/words.txt")
             cmd = mock.call_args[0][0]
         type_val = cmd[cmd.index("-t") + 1]
         assert "snoop" in type_val
-        assert "brt" in type_val
+        assert "brt" not in type_val
 
     def test_active_mode_excludes_snoop(self) -> None:
         with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock:
@@ -917,3 +929,124 @@ class TestRunFfuf:
             run_ffuf("example.com", url="http://10.0.0.1", wordlist="/tmp/w.txt")
             cmd = mock.call_args[0][0]
         assert "-ac" in cmd
+
+
+# ---------------------------------------------------------------------------
+# fqdn_cb streaming — exercises each wrapper's real-time FQDN emission path
+# ---------------------------------------------------------------------------
+
+
+def _fake_run_tool(output_lines: list[str]):
+    """Build a fake run_tool that actually invokes the wrapper's line_cb."""
+
+    def _impl(cmd, *, timeout=None, idle_timeout=None, line_cb=None, cmd_cb=None, **kwargs):
+        if line_cb is not None:
+            for line in output_lines:
+                line_cb(line)
+        return (output_lines, False)
+
+    return _impl
+
+
+class TestSubfinderFqdnCb:
+    def test_emits_in_scope_fqdns_and_ignores_others(self) -> None:
+        seen: list[str] = []
+        with patch(
+            "subdomainenum.tools.subfinder.run_tool",
+            side_effect=_fake_run_tool([
+                "a.example.com",
+                "B.EXAMPLE.com",
+                "   ",
+                "other.domain.test",
+            ]),
+        ):
+            run_subfinder("example.com", fqdn_cb=seen.append)
+        assert "a.example.com" in seen
+        assert "b.example.com" in seen
+        assert "other.domain.test" not in seen
+
+    def test_no_callback_skips_fqdn_emission(self) -> None:
+        with patch(
+            "subdomainenum.tools.subfinder.run_tool",
+            side_effect=_fake_run_tool(["a.example.com"]),
+        ):
+            # Should not raise when fqdn_cb is None.
+            result = run_subfinder("example.com")
+        assert "a.example.com" in result.subdomains
+
+
+class TestAssetfinderFqdnCb:
+    def test_emits_in_scope_fqdns(self) -> None:
+        seen: list[str] = []
+        with patch(
+            "subdomainenum.tools.assetfinder.run_tool",
+            side_effect=_fake_run_tool(["asset1.example.com", "foreign.test"]),
+        ):
+            run_assetfinder("example.com", fqdn_cb=seen.append)
+        assert seen == ["asset1.example.com"]
+
+
+class TestFindomainFqdnCb:
+    def test_emits_in_scope_fqdns(self) -> None:
+        seen: list[str] = []
+        with patch(
+            "subdomainenum.tools.findomain.run_tool",
+            side_effect=_fake_run_tool(["find.example.com", "other.test"]),
+        ):
+            run_findomain("example.com", fqdn_cb=seen.append)
+        assert seen == ["find.example.com"]
+
+
+class TestGobusterDnsFqdnCb:
+    def test_emits_in_scope_fqdns_once_per_fqdn(self) -> None:
+        seen: list[str] = []
+        with patch(
+            "subdomainenum.tools.gobuster_dns.run_tool",
+            side_effect=_fake_run_tool([
+                "Found: admin.example.com",
+                "Found: admin.example.com",  # duplicate should not re-fire
+                "Found: api.example.com.",  # trailing-dot must be trimmed
+                "Found: evil.other.test",
+            ]),
+        ):
+            run_gobuster_dns(
+                "example.com", wordlist="/tmp/w.txt", fqdn_cb=seen.append,
+            )
+        assert seen == ["admin.example.com", "api.example.com"]
+
+
+class TestAmassFqdnCb:
+    def test_emits_in_scope_fqdn_from_graph_line(self) -> None:
+        seen: list[str] = []
+        with patch(
+            "subdomainenum.tools.amass.run_tool",
+            side_effect=_fake_run_tool([
+                "svc.example.com (FQDN) --> a_record --> 1.2.3.4 (IPAddress)",
+                "ns1.other.test (FQDN) --> a_record --> 5.6.7.8 (IPAddress)",
+                "svc.example.com (FQDN) --> aaaa_record --> ::1 (IPAddress)",
+            ]),
+        ):
+            result = run_amass("example.com", fqdn_cb=seen.append)
+        assert seen == ["svc.example.com"]
+        assert result.subdomains == ["svc.example.com"]
+
+
+class TestDnsreconFqdnCb:
+    def test_emits_in_scope_fqdns_from_tokens(self) -> None:
+        seen: list[str] = []
+        with patch(
+            "subdomainenum.tools.dnsrecon.run_tool",
+            side_effect=_fake_run_tool([
+                "[*] A mail.example.com 1.2.3.4",
+                "[*] CNAME cdn.example.com cdn.provider.net",
+                "[*] A foreign.test 9.9.9.9",
+            ]),
+        ):
+            result = run_dnsrecon(
+                "example.com", mode=EnumMode.PASSIVE, fqdn_cb=seen.append,
+            )
+        assert "mail.example.com" in seen
+        assert "cdn.example.com" in seen
+        assert "foreign.test" not in seen
+        # Streamed FQDNs must populate result.subdomains when fqdn_cb is set.
+        assert "mail.example.com" in result.subdomains

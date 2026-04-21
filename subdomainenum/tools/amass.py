@@ -52,18 +52,19 @@ def run_amass(
     mode: EnumMode = EnumMode.PASSIVE,
     wordlist: str | None = None,
     timeout: int = 600,
-    idle_timeout: int = 120,
+    idle_timeout: int = 45,
     line_cb: Callable[[str], None] | None = None,
     cmd_cb: Callable[[str], None] | None = None,
+    fqdn_cb: Callable[[str], None] | None = None,
 ) -> ToolResult:
     """Run amass for *domain* and return a :class:`~subdomainenum.models.ToolResult`.
 
     :param domain: Target base domain.
     :param mode: Enumeration mode.  When ``active`` or ``all``, ``-active`` is
         appended to enable zone transfers and certificate name grabs.
-    :param wordlist: Path to a wordlist file.  When provided and mode is ``active``
-        or ``all``, ``-brute -w <wordlist>`` is appended to enable brute-force
-        subdomain enumeration.
+    :param wordlist: Accepted for API compatibility but ignored — brute-force DNS
+        enumeration is handled by ``gobuster dns`` (faster, higher concurrency)
+        so ``-brute -w`` is no longer passed to amass.
     :param timeout: Hard ceiling in seconds; amass is killed if it runs this long
         regardless of output activity.
     :param idle_timeout: Seconds of silence after which amass is killed even if the
@@ -71,20 +72,44 @@ def run_amass(
         Prevents the common case where amass stalls indefinitely without output.
     :param line_cb: Optional callback invoked with each output line (for debug mode).
     :param cmd_cb: Optional callback invoked once with the full command string before launch.
+    :param fqdn_cb: Optional callback invoked with each in-scope FQDN as soon as it
+        is parsed, allowing callers to start downstream work (e.g. DNS resolution)
+        in parallel with enumeration.
     :rtype: ToolResult
     """
+    _ = wordlist  # retained for API compatibility; see docstring
     result = ToolResult(name="amass")
     cmd = ["amass", "enum", "-d", domain]
     if mode in (EnumMode.ACTIVE, EnumMode.ALL):
         cmd.append("-active")
-        if wordlist:
-            cmd += ["-brute", "-w", wordlist]
+
+    suffix = f".{domain}"
+    streamed_seen: set[str] = set()
+    streamed: list[str] = []
+
+    def _on_line(line: str) -> None:
+        if line_cb is not None:
+            line_cb(line)
+        if fqdn_cb is None:
+            return
+        clean = _ANSI_ESCAPE_RE.sub("", line)
+        match = _AMASS_FQDN_RE.match(clean)
+        if not match:
+            return
+        fqdn = match.group(1).lower()
+        if fqdn in streamed_seen:
+            return
+        if fqdn == domain or fqdn.endswith(suffix):
+            streamed_seen.add(fqdn)
+            streamed.append(fqdn)
+            fqdn_cb(fqdn)
+
     try:
         lines, timed_out = run_tool(
             cmd,
             timeout=timeout,
             idle_timeout=idle_timeout,
-            line_cb=line_cb,
+            line_cb=_on_line,
             cmd_cb=cmd_cb,
             ignore_returncode=True,
         )
@@ -93,6 +118,6 @@ def run_amass(
         result.error = str(exc)
         return result
 
-    result.subdomains = _parse_amass_output(lines, domain)
+    result.subdomains = streamed if fqdn_cb is not None else _parse_amass_output(lines, domain)
     result.timed_out = timed_out
     return result
