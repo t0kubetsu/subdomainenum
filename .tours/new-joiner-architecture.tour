@@ -37,7 +37,7 @@
       "file": "subdomainenum/assessor.py",
       "line": 222,
       "title": "assess() — Public API",
-      "description": "`assess()` is the library's public surface. It accepts a domain and optional callbacks and returns an `EnumReport`. Nothing inside raises; all errors are captured in `ToolResult.error`.\n\nPhases:\n1. Passive tools in parallel (`_run_passive`, 5 workers)\n2. Non-ffuf active tools in parallel (`_run_active_enum`, 3 workers: amass, dnsrecon, gobuster)\n3. ffuf fans out one worker per resolved target IP, capped at 8 (`_run_ffuf_fanout`)\n4. DNS resolution of deduplicated FQDNs (`_resolve_all`, 50 workers; reuses IPs already resolved for ffuf URLs)\n\nIn `ALL` mode phases 1 and 2 run concurrently under an outer executor (phase fusion); ffuf runs after they drain so it can target IPs resolved from passive FQDNs."
+      "description": "`assess()` is the library's public surface. It accepts a domain and optional callbacks and returns an `EnumReport`. Nothing inside raises; all errors are captured in `ToolResult.error`.\n\nPhases:\n1. Passive tools in parallel (`_run_passive`, 5 workers)\n2. Non-ffuf active tools in parallel (`_run_active_enum`). In `ALL` mode the pool is **amass + gobuster** (2 workers) — dnsrecon already runs passively. In `ACTIVE`-only mode the pool is **amass + gobuster + dnsrecon** (3 workers) so AXFR and DNSSEC zone walk are still executed when the passive phase is skipped.\n3. ffuf fans out one worker per resolved target IP, capped at 8 (`_run_ffuf_fanout`)\n4. DNS resolution runs *during* phases 1–2: a `StreamingResolver` receives FQDNs via each tool's `fqdn_cb` as soon as they are parsed, and the final `_resolve_all` (up to 100 workers) consumes whatever the streaming resolver didn't already finish. Per-FQDN A/AAAA queries fan out on a shared 256-worker pool in `dns_utils.py`.\n\nIn `ALL` mode phases 1 and 2 run concurrently under an outer executor (phase fusion); ffuf runs after they drain so it can target IPs resolved from passive FQDNs."
     },
     {
       "file": "subdomainenum/assessor.py",
@@ -61,7 +61,7 @@
       "file": "subdomainenum/tools/tool_runner.py",
       "line": 62,
       "title": "Idle Timeout — Rolling Silence Detection",
-      "description": "When `idle_timeout` is set, a mutable `list[float]` container (`_last_line_time`) holds the timestamp of the last received line. The `_tracking_cb` closure updates `_last_line_time[0]` on every line (using a list instead of a bare `float` so the inner closure can mutate it without `nonlocal`).\n\nThe polling loop (line 91) wakes every 0.5 s and checks two conditions:\n- `now - _last_line_time[0] >= idle_timeout` → silence threshold crossed\n- `now - _start >= timeout` → hard ceiling hit\n\nThis solves the amass stall: amass can run for 10 minutes as long as it keeps emitting output, but is killed 120 s after the last line."
+      "description": "When `idle_timeout` is set, a mutable `list[float]` container (`_last_line_time`) holds the timestamp of the last received line. The `_tracking_cb` closure updates `_last_line_time[0]` on every line (using a list instead of a bare `float` so the inner closure can mutate it without `nonlocal`).\n\nThe polling loop (line 91) wakes every 0.5 s and checks two conditions:\n- `now - _last_line_time[0] >= idle_timeout` → silence threshold crossed\n- `now - _start >= timeout` → hard ceiling hit\n\nThis solves the amass stall: amass can run for 10 minutes as long as it keeps emitting output, but is killed 45 s after the last line (amass's `run_amass` default)."
     },
     {
       "file": "subdomainenum/tools/amass.py",
@@ -73,19 +73,19 @@
       "file": "subdomainenum/tools/amass.py",
       "line": 49,
       "title": "run_amass() — Brute Force + Idle Timeout Defaults",
-      "description": "`run_amass()` is the only wrapper that passes `idle_timeout` to `run_tool()`. Defaults are deliberately conservative: `idle_timeout=120` (kill after 2 min silence) and `timeout=600` (hard ceiling 10 min).\n\nBrute-force (`-brute -w <wordlist>`) is only appended when **both** the mode is active/all **and** a wordlist was provided (line 80). Passive amass runs never use `-active` or `-brute`."
+      "description": "`run_amass()` is the only wrapper that passes `idle_timeout` to `run_tool()`. Defaults are `idle_timeout=45` (kill after 45 s silence) and `timeout=600` (hard ceiling 10 min). The idle ceiling used to be 120 s but was tightened in the perf pass: amass stalls silently burn minutes that the scan doesn't need to pay for.\n\nIn active/all mode `run_amass()` appends `-active` only. The `-brute -w <wordlist>` flags have been dropped — DNS brute-force is delegated to `gobuster dns` (faster, higher concurrency). The `wordlist` kwarg is still accepted for API compatibility but is ignored here."
     },
     {
       "file": "subdomainenum/dns_utils.py",
       "line": 9,
       "title": "DNS Resolution — Never Raises",
-      "description": "`resolve_ips()` queries both A and AAAA records in one pass. It catches all dnspython exception types (`NXDOMAIN`, `NoAnswer`, `NoNameservers`, `Timeout`, `DNSException`) and silently returns `[]`.\n\nThis design choice propagates through the system: `Status.DEAD` and `Status.TIMEOUT` are set by callers based on empty return values, not by exception handling. The resolver is never the source of a crash."
+      "description": "`resolve_ips()` queries A and AAAA **in parallel** via a shared module-level `ThreadPoolExecutor(256)` (`_QUERY_EXECUTOR`), so per-FQDN latency is bounded by the slower of the two queries rather than their sum. It catches all dnspython exception types (`NXDOMAIN`, `NoAnswer`, `NoNameservers`, `Timeout`, `DNSException`) and silently returns `[]`.\n\nThis design choice propagates through the system: `Status.DEAD` and `Status.TIMEOUT` are set by callers based on empty return values, not by exception handling. The resolver is never the source of a crash."
     },
     {
       "file": "subdomainenum/assessor.py",
       "line": 187,
       "title": "Parallel DNS Resolution",
-      "description": "`_resolve_all()` fans out to up to 50 worker threads using `ThreadPoolExecutor.map()`. The limit of 50 is intentional — more workers tend to overwhelm the local resolver or the upstream nameserver.\n\nResults are sorted alphabetically by FQDN before being returned, so the report is deterministic regardless of completion order."
+      "description": "`_resolve_all()` fans out to up to 100 worker threads using `ThreadPoolExecutor.map()` and consumes the `pre_resolved` cache built up by `StreamingResolver` during enumeration — so most FQDNs are already resolved and the worker pool only has to chase the stragglers. Results are sorted alphabetically by FQDN before being returned, so the report is deterministic regardless of completion order."
     },
     {
       "file": "subdomainenum/verdict.py",

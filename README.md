@@ -42,16 +42,19 @@ $ subdomainenum check example.com
 | **amass**          | Passive | Runs `amass enum -d domain`; parses v4 graph-format output to extract FQDNs         |
 | **findomain**      | Passive | Runs `findomain --target domain --quiet`                                             |
 | **assetfinder**    | Passive | Runs `assetfinder --subs-only domain`                                                |
-| **dnsrecon**       | Passive + Active | Passive: `std,srv` with Bing/Yandex/crt.sh (`-b -y -k`), SPF reverse + deep whois (`-s -w`); adds `snoop` (NS cache-snoop) when `--wordlist` is supplied; adds `--shodan --shodan-active` when `SHODAN_API_KEY` is in the environment. Active: `brt` with AXFR/DNSSEC zone walk (`-a -z`) |
+| **dnsrecon**       | Passive + Active | Passive: `std,srv` with Bing/Yandex/crt.sh (`-b -y -k`), SPF reverse + deep whois (`-s -w`); adds `snoop` (NS cache-snoop) when `--wordlist` is supplied; adds `--shodan --shodan-active` when `SHODAN_API_KEY` is in the environment. Active: `std,srv` with AXFR and DNSSEC zone walk (`-a -z`); brute-force is delegated to `gobuster dns` so dnsrecon no longer emits `brt`. |
 | **gobuster dns**   | Active  | Brute-forces DNS with a wordlist (`gobuster dns --domain domain -w wordlist`)        |
 | **ffuf**           | Active  | Fuzzes virtual hosts via the `Host` header against a target URL                      |
-| **DNS resolution** | —       | All discovered FQDNs are resolved (A + AAAA) in parallel with a configurable timeout |
+| **DNS resolution** | —       | All discovered FQDNs are resolved (A + AAAA in parallel per FQDN) — `A`/`AAAA` queries fan out on a shared 256-worker pool, final batch resolves in up to 100 parallel workers. A `StreamingResolver` overlaps DNS with enumeration: each tool pushes FQDNs into the resolver as soon as it parses them, so by the time enumeration finishes most lookups are already complete. |
 
 Passive and active sources can be run independently or combined (`--mode all`).
 In `--mode all`, the passive pool (5 workers) and the non-ffuf active pool
-(3 workers: amass, dnsrecon, gobuster) run concurrently; `ffuf` then fans out
-one worker per resolved target IP (capped at 8). IPs looked up while building
-`ffuf` URLs are cached so no FQDN is DNS-resolved twice.
+(2 workers: amass, gobuster) run concurrently — dnsrecon already runs in the
+passive pool, so re-running it actively would duplicate work. In `--mode
+active` (no passive) the active pool grows to 3 workers (amass, gobuster,
+dnsrecon) so AXFR and DNSSEC zone walk are still executed. `ffuf` then fans
+out one worker per resolved target IP (capped at 8). IPs looked up while
+building `ffuf` URLs are cached so no FQDN is DNS-resolved twice.
 
 ---
 
@@ -292,6 +295,9 @@ subdomainenum/
 │   ├── models.py                Dataclasses: SubdomainResult, VhostResult,
 │   │                              ToolResult, EnumReport + Status/EnumMode enums
 │   ├── dns_utils.py             resolve_ips(), is_alive() — dnspython wrappers
+│   │                              (A+AAAA queried in parallel on a shared pool)
+│   ├── streaming.py             StreamingResolver — background DNS queue that
+│   │                              overlaps resolution with enumeration
 │   ├── constants.py             ACTIVE_TOOLS registry, detect_tools(), get_install_hint()
 │   ├── assessor.py              assess() — orchestrates passive + active sources
 │   ├── reporter.py              Rich terminal output + to_dict() + save_report()
@@ -300,11 +306,13 @@ subdomainenum/
 │   └── tools/
 │       ├── tool_runner.py   subprocess wrapper used by all active tools
 │       ├── subfinder.py     subfinder wrapper
-│       ├── amass.py         amass enum wrapper (passive is amass's default)
+│       ├── amass.py         amass enum wrapper (passive is amass's default;
+│       │                      active no longer uses -brute -w — see gobuster)
 │       ├── findomain.py     findomain wrapper
 │       ├── assetfinder.py   assetfinder wrapper
-│       ├── dnsrecon.py      dnsrecon passive (std,srv) and active (brt) wrapper
-│       ├── gobuster_dns.py  gobuster dns wrapper
+│       ├── dnsrecon.py      dnsrecon passive (std,srv,snoop) and active
+│       │                      (std,srv + AXFR + DNSSEC zone walk) wrapper
+│       ├── gobuster_dns.py  gobuster dns wrapper (sole DNS brute-forcer)
 │       └── ffuf.py          ffuf vhost fuzzing wrapper
 ├── tests/
 │   ├── __init__.py
