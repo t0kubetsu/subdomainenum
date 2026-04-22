@@ -11,7 +11,7 @@ from rich import box
 from rich.panel import Panel
 from rich.text import Text
 
-from subdomainenum.models import EnumMode, EnumReport, Status
+from subdomainenum.models import EnumMode, EnumReport, Status, ToolResult
 from subdomainenum.verdict import build_verdict
 
 _console = Console()
@@ -78,6 +78,16 @@ def to_dict(report: EnumReport) -> dict:
 # ---------------------------------------------------------------------------
 # Rich rendering
 # ---------------------------------------------------------------------------
+
+
+def _mode_label(tool: ToolResult, report_mode: EnumMode) -> str:
+    if (
+        report_mode == EnumMode.ALL
+        and tool.name == "dnsrecon"
+        and tool.mode == EnumMode.PASSIVE
+    ):
+        return "passive+active"
+    return tool.mode.value if tool.mode is not None else "—"
 
 
 def _status_style(status: Status) -> str:
@@ -163,7 +173,7 @@ def print_report(report: EnumReport, *, console: Console | None = None) -> None:
             timeout_cell = "[yellow]yes[/yellow]" if t.timed_out else ""
             row = [t.name]
             if show_mode:
-                row.append(t.mode.value if t.mode is not None else "—")
+                row.append(_mode_label(t, report.mode))
             row += [str(len(t.subdomains)), avail, timeout_cell, t.error or ""]
             tool_table.add_row(*row)
         con.print(Panel(

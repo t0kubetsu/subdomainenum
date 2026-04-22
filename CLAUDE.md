@@ -75,7 +75,7 @@ tests/
 - Test class naming: `TestRunTool`, `TestQueryCrtSh`, `TestAssess`, etc. (class-per-feature)
 - AAA pattern: Arrange → Act → Assert in every test method
 - Coverage target: ≥ 80% (configured in `pyproject.toml`)
-- Current test count: **377 tests**
+- Current test count: **378 tests**
 
 ## Adding a New Passive Source
 1. Add a `query_<name>(domain) → ToolResult` function directly in `assessor.py` or a new helper module

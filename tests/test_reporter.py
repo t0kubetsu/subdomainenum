@@ -127,6 +127,18 @@ class TestPrintReport:
         assert "Mode" in output
         assert "passive" in output
         assert "active" in output
+        assert "passive+active" in output
+
+    def test_dnsrecon_mode_label_passive_active_in_all_mode(self) -> None:
+        buf = StringIO()
+        console = Console(file=buf, width=200, highlight=False)
+        report = EnumReport(
+            domain="example.com",
+            mode=EnumMode.ALL,
+            tools=[ToolResult(name="dnsrecon", mode=EnumMode.PASSIVE)],
+        )
+        print_report(report, console=console)
+        assert "passive+active" in buf.getvalue()
 
     def test_mode_column_hidden_in_passive_mode(self) -> None:
         buf = StringIO()
