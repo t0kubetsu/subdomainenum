@@ -690,7 +690,8 @@ class TestPhaseAwareKeys:
 
     def test_passive_all_mode_dnsrecon_key_is_suffixed(self) -> None:
         names = self._passive_finish_names(EnumMode.ALL)
-        assert "dnsrecon passive" in names
+        assert "dnsrecon passive+active" in names
+        assert "dnsrecon passive" not in names
         assert "dnsrecon" not in names
 
     def test_passive_all_mode_other_tools_keep_plain_keys(self) -> None:

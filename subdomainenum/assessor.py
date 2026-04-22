@@ -71,8 +71,11 @@ def _run_passive(
 
     def _key(name: str) -> str:
         """Return the callback key for *name*, appending a phase suffix in ALL mode."""
-        if overall_mode == EnumMode.ALL and name in ("amass", "dnsrecon"):
-            return f"{name} passive"
+        if overall_mode == EnumMode.ALL:
+            if name == "amass":
+                return "amass passive"
+            if name == "dnsrecon":
+                return "dnsrecon passive+active"
         return name
 
     def _line_cb(tool: str) -> Callable[[str], None] | None:
@@ -216,7 +219,7 @@ def _run_active_enum(
     def _run_amass_active() -> ToolResult:
         _cb("Running amass (active)…")
         return run_amass(
-            domain, mode=EnumMode.ACTIVE, wordlist=wordlist,
+            domain, mode=EnumMode.ACTIVE,
             line_cb=_line_cb("amass"), cmd_cb=_cmd_cb("amass"),
             fqdn_cb=fqdn_cb,
         )
