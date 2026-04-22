@@ -5,8 +5,8 @@
 
 **subdomainenum** discovers subdomains through passive tools (subfinder, amass,
 findomain, assetfinder — which also queries crt.sh and other CT logs internally),
-optionally brute-forces DNS with dnsrecon and gobuster, fuzzes virtual hosts via
-wfuzz, resolves each result, and prints a colour-coded summary.
+optionally brute-forces DNS with gobuster, fuzzes virtual hosts via
+ffuf, resolves each result, and prints a colour-coded summary.
 
 ```
 $ subdomainenum check example.com
@@ -197,7 +197,7 @@ report = assess(
     "example.com",
     mode=EnumMode.PASSIVE,          # passive | active | all
     wordlist=None,                  # required for active/all
-    url=None,                       # optional: target URL for wfuzz
+    url=None,                       # optional: target URL for ffuf vhost fuzzing
     timeout=5.0,                    # DNS resolution timeout per query
     progress_cb=print,              # optional: called with status strings
 )
@@ -219,7 +219,7 @@ print(report.mode.value)   # "passive"
 for sub in report.subdomains:
     print(sub.fqdn, sub.status.value, sub.ip_addresses, sub.tools)
 
-# Virtual hosts (wfuzz, only in active/all mode with --url)
+# Virtual hosts (ffuf, only in active/all mode with --url)
 for vhost in report.vhosts:
     print(vhost.vhost, vhost.status_code, vhost.content_length)
 

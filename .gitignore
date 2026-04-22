@@ -53,3 +53,5 @@ reports/
 # Claude Code internal artifacts (PRPs, memory, planning reports)
 # .tours/ is intentionally NOT ignored — it is checked in as documentation
 .claude/
+
+.ecc
