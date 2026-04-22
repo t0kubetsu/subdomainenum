@@ -65,9 +65,9 @@ tests/
 | DNS resolution | `dns_utils.py` | `dns.resolver.Resolver.resolve` |
 
 ### EnumMode behaviour
-- `passive` — subfinder, amass, findomain, assetfinder, dnsrecon (`std,srv` with Bing/Yandex/crt.sh/SPF/whois; adds `snoop` when `--wordlist` is present; assetfinder also queries crt.sh/certspotter internally).
-- `active` — amass (no `-brute`), gobuster dns (brute-force, requires `--wordlist`), dnsrecon (`std,srv` with AXFR and DNSSEC zone walk); ffuf runs only when `--url` or resolved base-domain IPs provide targets.
-- `all` — both phases: passive runs the 5 passive sources and active runs amass + gobuster (dnsrecon is *not* re-run here because it already ran passively).
+- `passive` — subfinder, amass, findomain, assetfinder, dnsrecon (`std,srv` with Bing/Yandex/crt.sh/SPF/AXFR/DNSSEC zone walk; assetfinder also queries crt.sh/certspotter internally). AXFR and DNSSEC zone walk target public authoritative nameservers, not the target application, so they belong in the passive phase.
+- `active` — amass (no `-brute`), gobuster dns (brute-force, requires `--wordlist`); ffuf runs only when `--url` or resolved base-domain IPs provide targets. dnsrecon is **never** in the active pool.
+- `all` — both phases: passive runs the 5 passive sources (including dnsrecon), active runs amass + gobuster only.
 
 ## Testing Conventions
 - Mock at the I/O boundary listed in the table above — never mock `assess()` itself
@@ -75,7 +75,7 @@ tests/
 - Test class naming: `TestRunTool`, `TestQueryCrtSh`, `TestAssess`, etc. (class-per-feature)
 - AAA pattern: Arrange → Act → Assert in every test method
 - Coverage target: ≥ 80% (configured in `pyproject.toml`)
-- Current test count: **383 tests**
+- Current test count: **361 tests**
 
 ## Adding a New Passive Source
 1. Add a `query_<name>(domain) → ToolResult` function directly in `assessor.py` or a new helper module

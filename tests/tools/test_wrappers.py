@@ -343,119 +343,60 @@ class TestRunAssetfinder:
 class TestRunDnsrecon:
     def test_returns_source_result(self) -> None:
         with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)):
-            result = run_dnsrecon("example.com", mode=EnumMode.ALL, wordlist="/tmp/words.txt")
+            result = run_dnsrecon("example.com")
         assert isinstance(result, ToolResult)
         assert result.name == "dnsrecon"
 
     def test_single_invocation(self) -> None:
         with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock:
-            run_dnsrecon("example.com", mode=EnumMode.ALL, wordlist="/tmp/words.txt")
+            run_dnsrecon("example.com")
         assert mock.call_count == 1
 
-    def test_all_mode_uses_std_srv_snoop_and_excludes_brt(self) -> None:
-        """ALL mode emits std,srv,snoop — brt is delegated to gobuster."""
+    def test_uses_std_srv_and_excludes_brt(self) -> None:
+        """std,srv types only — brt is delegated to gobuster."""
         with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock:
-            run_dnsrecon("example.com", mode=EnumMode.ALL, wordlist="/tmp/words.txt")
+            run_dnsrecon("example.com")
             cmd = mock.call_args[0][0]
         type_val = cmd[cmd.index("-t") + 1]
         assert "std" in type_val
         assert "srv" in type_val
-        assert "snoop" in type_val
+        assert "snoop" not in type_val
         assert "brt" not in type_val
 
-    def test_all_mode_includes_passive_and_active_flags(self) -> None:
+    def test_includes_all_flags(self) -> None:
+        """Always includes third-party and AXFR/DNSSEC zone walk flags."""
         with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock:
-            run_dnsrecon("example.com", mode=EnumMode.ALL, wordlist="/tmp/words.txt")
+            run_dnsrecon("example.com")
             cmd = mock.call_args[0][0]
         for flag in ("-a", "-b", "-y", "-k", "-z", "-s"):
             assert flag in cmd, f"expected {flag} in command"
-
-    def test_all_mode_wordlist_in_command(self) -> None:
-        with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock:
-            run_dnsrecon("example.com", mode=EnumMode.ALL, wordlist="/tmp/subdomains.txt")
-            cmd = mock.call_args[0][0]
-        assert "-D" in cmd
-        assert "/tmp/subdomains.txt" in cmd
-
-    def test_passive_mode_uses_std_and_srv_types(self) -> None:
-        with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock:
-            run_dnsrecon("example.com", mode=EnumMode.PASSIVE)
-            cmd = mock.call_args[0][0]
-        type_val = cmd[cmd.index("-t") + 1]
-        assert "std" in type_val
-        assert "srv" in type_val
-        assert "brt" not in type_val
-
-    def test_passive_mode_includes_passive_flags(self) -> None:
-        with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock:
-            run_dnsrecon("example.com", mode=EnumMode.PASSIVE)
-            cmd = mock.call_args[0][0]
-        for flag in ("-b", "-y", "-k", "-s"):
-            assert flag in cmd, f"expected {flag} in passive command"
-
-    def test_passive_mode_excludes_active_flags(self) -> None:
-        with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock:
-            run_dnsrecon("example.com", mode=EnumMode.PASSIVE)
-            cmd = mock.call_args[0][0]
-        assert "-a" not in cmd
-        assert "-z" not in cmd
-        assert "-D" not in cmd
-
-    def test_active_mode_uses_std_srv_and_excludes_brt(self) -> None:
-        """Active mode emits std,srv only — brt has been delegated to gobuster."""
-        with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock:
-            run_dnsrecon("example.com", mode=EnumMode.ACTIVE, wordlist="/tmp/words.txt")
-            cmd = mock.call_args[0][0]
-        type_val = cmd[cmd.index("-t") + 1]
-        assert "std" in type_val
-        assert "srv" in type_val
-        assert "brt" not in type_val
-
-    def test_active_mode_includes_active_flags_and_ignores_wordlist(self) -> None:
-        """Active mode keeps AXFR and DNSSEC zone walk but ignores the wordlist
-        since brt has been removed."""
-        with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock:
-            run_dnsrecon("example.com", mode=EnumMode.ACTIVE, wordlist="/tmp/words.txt")
-            cmd = mock.call_args[0][0]
-        assert "-a" in cmd
-        assert "-z" in cmd
-        assert "-D" not in cmd
-        assert "/tmp/words.txt" not in cmd
-
-    def test_active_mode_excludes_passive_flags(self) -> None:
-        with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock:
-            run_dnsrecon("example.com", mode=EnumMode.ACTIVE, wordlist="/tmp/words.txt")
-            cmd = mock.call_args[0][0]
-        assert "-b" not in cmd
-        assert "-y" not in cmd
-        assert "-k" not in cmd
 
     def test_tool_missing_sets_available_false(self) -> None:
         with patch(
             "subdomainenum.tools.dnsrecon.run_tool",
             side_effect=RuntimeError("dnsrecon not found"),
         ):
-            result = run_dnsrecon("example.com", mode=EnumMode.PASSIVE)
+            result = run_dnsrecon("example.com")
         assert result.available is False
 
     def test_parses_logging_format_output(self) -> None:
         """dnsrecon writes via Python logging (to stderr); parse the timestamped format."""
         output = ["2026-04-13T11:10:38.863437-0400 INFO      A sub.example.com 1.2.3.4"]
         with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=(output, False)):
-            result = run_dnsrecon("example.com", mode=EnumMode.ACTIVE, wordlist="/tmp/w.txt")
+            result = run_dnsrecon("example.com")
         assert "sub.example.com" in result.subdomains
 
     def test_parses_cname_logging_format(self) -> None:
         """CNAME lines in logging format are also parsed correctly."""
         output = ["2026-04-13T11:10:40.252299-0400 INFO      CNAME cr.example.com alias.example.com"]
         with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=(output, False)):
-            result = run_dnsrecon("example.com", mode=EnumMode.ACTIVE, wordlist="/tmp/w.txt")
+            result = run_dnsrecon("example.com")
         assert "cr.example.com" in result.subdomains
 
     def test_parses_output_lines(self) -> None:
         output = ["[*] A sub.example.com 1.2.3.4"]
         with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=(output, False)):
-            result = run_dnsrecon("example.com", mode=EnumMode.PASSIVE)
+            result = run_dnsrecon("example.com")
         assert "sub.example.com" in result.subdomains
 
     def test_deduplicates_subdomains(self) -> None:
@@ -464,119 +405,86 @@ class TestRunDnsrecon:
             "[*] AAAA dup.example.com ::1",
         ]
         with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=(output, False)):
-            result = run_dnsrecon("example.com", mode=EnumMode.PASSIVE)
+            result = run_dnsrecon("example.com")
         assert result.subdomains.count("dup.example.com") == 1
 
     def test_uses_capture_stderr(self) -> None:
         """dnsrecon must capture stderr because it logs via Python logging module."""
         with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock:
-            run_dnsrecon("example.com", mode=EnumMode.PASSIVE)
+            run_dnsrecon("example.com")
         assert mock.call_args.kwargs.get("capture_stderr") is True
 
     def test_uses_ignore_returncode(self) -> None:
         """dnsrecon must ignore non-zero exit codes (AXFR refusal etc.)."""
         with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock:
-            run_dnsrecon("example.com", mode=EnumMode.PASSIVE)
+            run_dnsrecon("example.com")
         assert mock.call_args.kwargs.get("ignore_returncode") is True
 
     def test_cmd_cb_passed_to_run_tool(self) -> None:
         def cb(cmd: str) -> None:
             pass
         with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock:
-            run_dnsrecon("example.com", mode=EnumMode.PASSIVE, cmd_cb=cb)
+            run_dnsrecon("example.com", cmd_cb=cb)
         assert mock.call_args.kwargs.get("cmd_cb") is cb
 
     def test_timed_out_sets_timed_out_flag(self) -> None:
         output = ["[*] A partial.example.com 1.2.3.4"]
         with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=(output, True)):
-            result = run_dnsrecon("example.com", mode=EnumMode.PASSIVE)
+            result = run_dnsrecon("example.com")
         assert result.timed_out is True
 
     def test_normal_completion_timed_out_false(self) -> None:
         with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)):
-            result = run_dnsrecon("example.com", mode=EnumMode.PASSIVE)
+            result = run_dnsrecon("example.com")
         assert result.timed_out is False
 
-    def test_active_mode_never_adds_f_or_iw(self) -> None:
+    def test_excludes_f_and_iw(self) -> None:
         """-f and --iw are brt-only; with brt removed, neither flag should appear."""
         with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock:
-            run_dnsrecon("example.com", mode=EnumMode.ACTIVE, wordlist="/tmp/words.txt")
-            cmd = mock.call_args[0][0]
-        assert "-f" not in cmd
-        assert "--iw" not in cmd
-
-    def test_passive_mode_excludes_f_and_iw(self) -> None:
-        with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock:
-            run_dnsrecon("example.com", mode=EnumMode.PASSIVE)
+            run_dnsrecon("example.com")
             cmd = mock.call_args[0][0]
         assert "-f" not in cmd
         assert "--iw" not in cmd
 
     def test_threads_appended_when_provided(self) -> None:
         with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock:
-            run_dnsrecon("example.com", mode=EnumMode.PASSIVE, threads=10)
+            run_dnsrecon("example.com", threads=10)
             cmd = mock.call_args[0][0]
         assert "--threads" in cmd
         assert cmd[cmd.index("--threads") + 1] == "10"
 
     def test_threads_omitted_when_none(self) -> None:
         with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock:
-            run_dnsrecon("example.com", mode=EnumMode.PASSIVE)
+            run_dnsrecon("example.com")
             cmd = mock.call_args[0][0]
         assert "--threads" not in cmd
 
-
-    def test_all_mode_never_adds_f_or_iw(self) -> None:
-        """-f and --iw are brt-only; with brt removed from ALL mode, neither flag appears."""
-        with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock:
-            run_dnsrecon("example.com", mode=EnumMode.ALL, wordlist="/tmp/words.txt")
-            cmd = mock.call_args[0][0]
-        assert "-f" not in cmd
-        assert "--iw" not in cmd
-
     # --- Shodan enrichment (opt-in via SHODAN_API_KEY env var) ---
 
-    def test_passive_mode_adds_shodan_flags_when_env_var_set(self, monkeypatch) -> None:
+    def test_adds_shodan_flags_when_env_var_set(self, monkeypatch) -> None:
         monkeypatch.setenv("SHODAN_API_KEY", "fake-key")
         with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock:
-            run_dnsrecon("example.com", mode=EnumMode.PASSIVE)
+            run_dnsrecon("example.com")
             cmd = mock.call_args[0][0]
         assert "--shodan" in cmd
         assert "--shodan-active" in cmd
 
-    def test_passive_mode_omits_shodan_flags_when_env_var_unset(self, monkeypatch) -> None:
+    def test_omits_shodan_flags_when_env_var_unset(self, monkeypatch) -> None:
         monkeypatch.delenv("SHODAN_API_KEY", raising=False)
         with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock:
-            run_dnsrecon("example.com", mode=EnumMode.PASSIVE)
+            run_dnsrecon("example.com")
             cmd = mock.call_args[0][0]
         assert "--shodan" not in cmd
         assert "--shodan-active" not in cmd
 
     @pytest.mark.parametrize("blank_value", ["", " ", "   ", "\t", "\n", " \t\n "])
-    def test_passive_mode_omits_shodan_flags_when_env_var_blank(
+    def test_omits_shodan_flags_when_env_var_blank(
         self, monkeypatch, blank_value: str
     ) -> None:
         """Empty/whitespace-only env var must be treated as unset."""
         monkeypatch.setenv("SHODAN_API_KEY", blank_value)
         with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock:
-            run_dnsrecon("example.com", mode=EnumMode.PASSIVE)
-            cmd = mock.call_args[0][0]
-        assert "--shodan" not in cmd
-        assert "--shodan-active" not in cmd
-
-    def test_all_mode_adds_shodan_flags_when_env_var_set(self, monkeypatch) -> None:
-        monkeypatch.setenv("SHODAN_API_KEY", "fake-key")
-        with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock:
-            run_dnsrecon("example.com", mode=EnumMode.ALL, wordlist="/tmp/words.txt")
-            cmd = mock.call_args[0][0]
-        assert "--shodan" in cmd
-        assert "--shodan-active" in cmd
-
-    def test_active_mode_never_adds_shodan_flags(self, monkeypatch) -> None:
-        """Active-only mode skips the passive-flag block, so no Shodan enrichment."""
-        monkeypatch.setenv("SHODAN_API_KEY", "fake-key")
-        with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock:
-            run_dnsrecon("example.com", mode=EnumMode.ACTIVE, wordlist="/tmp/words.txt")
+            run_dnsrecon("example.com")
             cmd = mock.call_args[0][0]
         assert "--shodan" not in cmd
         assert "--shodan-active" not in cmd
@@ -585,127 +493,20 @@ class TestRunDnsrecon:
         """dnsrecon reads SHODAN_API_KEY from env itself — we must not leak it into argv."""
         monkeypatch.setenv("SHODAN_API_KEY", "super-secret-key-42")
         with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock:
-            run_dnsrecon("example.com", mode=EnumMode.PASSIVE)
+            run_dnsrecon("example.com")
             cmd = mock.call_args[0][0]
         assert "--shodan-key" not in cmd
         assert "super-secret-key-42" not in cmd
 
-    # --- snoop cache-snooping in passive mode (requires a wordlist) ---
-
-    def test_passive_mode_without_wordlist_excludes_snoop(self, monkeypatch) -> None:
+    def test_excludes_snoop_and_d_flag(self, monkeypatch) -> None:
+        """snoop type and -D flag are not used."""
         monkeypatch.delenv("SHODAN_API_KEY", raising=False)
         with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock:
-            run_dnsrecon("example.com", mode=EnumMode.PASSIVE)
+            run_dnsrecon("example.com")
             cmd = mock.call_args[0][0]
         type_val = cmd[cmd.index("-t") + 1]
         assert "snoop" not in type_val
         assert "-D" not in cmd
-
-    def test_passive_mode_with_wordlist_includes_snoop(self, monkeypatch) -> None:
-        monkeypatch.delenv("SHODAN_API_KEY", raising=False)
-        with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock:
-            run_dnsrecon("example.com", mode=EnumMode.PASSIVE, wordlist="/tmp/snoop.txt")
-            cmd = mock.call_args[0][0]
-        type_val = cmd[cmd.index("-t") + 1]
-        assert "snoop" in type_val
-        assert "std" in type_val
-        assert "srv" in type_val
-        # brt stays out of passive mode even with a wordlist
-        assert "brt" not in type_val
-
-    def test_passive_mode_with_wordlist_passes_D_flag(self, monkeypatch) -> None:
-        monkeypatch.delenv("SHODAN_API_KEY", raising=False)
-        with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock:
-            run_dnsrecon("example.com", mode=EnumMode.PASSIVE, wordlist="/tmp/snoop.txt")
-            cmd = mock.call_args[0][0]
-        assert "-D" in cmd
-        assert "/tmp/snoop.txt" in cmd
-
-    def test_all_mode_includes_snoop_type(self) -> None:
-        """ALL mode always has a wordlist, so snoop must be enabled (brt is delegated to gobuster)."""
-        with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock:
-            run_dnsrecon("example.com", mode=EnumMode.ALL, wordlist="/tmp/words.txt")
-            cmd = mock.call_args[0][0]
-        type_val = cmd[cmd.index("-t") + 1]
-        assert "snoop" in type_val
-        assert "brt" not in type_val
-
-    def test_active_mode_excludes_snoop(self) -> None:
-        with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock:
-            run_dnsrecon("example.com", mode=EnumMode.ACTIVE, wordlist="/tmp/words.txt")
-            cmd = mock.call_args[0][0]
-        type_val = cmd[cmd.index("-t") + 1]
-        assert "snoop" not in type_val
-
-    def test_passive_snoop_passes_n_flag_with_resolved_ns(self, monkeypatch) -> None:
-        """dnsrecon snoop requires -n with IPv4; NS hostnames are resolved to IPs."""
-        monkeypatch.delenv("SHODAN_API_KEY", raising=False)
-        with (
-            patch(
-                "subdomainenum.tools.dnsrecon.resolve_ns",
-                return_value=["ns1.example.com", "ns2.example.com"],
-            ) as mock_ns,
-            patch(
-                "subdomainenum.tools.dnsrecon.resolve_ips",
-                side_effect=lambda host: {"ns1.example.com": ["1.2.3.4"], "ns2.example.com": ["5.6.7.8"]}[host],
-            ),
-            patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock_tool,
-        ):
-            run_dnsrecon("example.com", mode=EnumMode.PASSIVE, wordlist="/tmp/snoop.txt")
-            cmd = mock_tool.call_args[0][0]
-        mock_ns.assert_called_once_with("example.com")
-        assert "-n" in cmd
-        n_idx = cmd.index("-n")
-        assert "1.2.3.4" in cmd[n_idx + 1]
-        assert "5.6.7.8" in cmd[n_idx + 1]
-
-    def test_passive_snoop_skips_n_flag_when_ns_empty(self, monkeypatch) -> None:
-        """If NS lookup returns nothing, -n is omitted."""
-        monkeypatch.delenv("SHODAN_API_KEY", raising=False)
-        with (
-            patch("subdomainenum.tools.dnsrecon.resolve_ns", return_value=[]),
-            patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock_tool,
-        ):
-            run_dnsrecon("example.com", mode=EnumMode.PASSIVE, wordlist="/tmp/snoop.txt")
-            cmd = mock_tool.call_args[0][0]
-        assert "-n" not in cmd
-
-    def test_passive_snoop_skips_n_flag_when_ns_has_no_ipv4(self, monkeypatch) -> None:
-        """If NS hostnames resolve to no IPv4, -n is omitted."""
-        monkeypatch.delenv("SHODAN_API_KEY", raising=False)
-        with (
-            patch("subdomainenum.tools.dnsrecon.resolve_ns", return_value=["ns1.example.com"]),
-            patch("subdomainenum.tools.dnsrecon.resolve_ips", return_value=[]),
-            patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock_tool,
-        ):
-            run_dnsrecon("example.com", mode=EnumMode.PASSIVE, wordlist="/tmp/snoop.txt")
-            cmd = mock_tool.call_args[0][0]
-        assert "-n" not in cmd
-
-    def test_all_mode_snoop_passes_n_flag(self) -> None:
-        """ALL mode always enables snoop — NS IPv4 must be injected here too."""
-        with (
-            patch("subdomainenum.tools.dnsrecon.resolve_ns", return_value=["ns1.example.com"]),
-            patch("subdomainenum.tools.dnsrecon.resolve_ips", return_value=["1.2.3.4"]),
-            patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock_tool,
-        ):
-            run_dnsrecon("example.com", mode=EnumMode.ALL, wordlist="/tmp/words.txt")
-            cmd = mock_tool.call_args[0][0]
-        assert "-n" in cmd
-        assert "1.2.3.4" in cmd[cmd.index("-n") + 1]
-
-    def test_active_mode_no_snoop_no_n_flag(self) -> None:
-        """ACTIVE mode does not use snoop, so resolve_ns must not be called."""
-        with (
-            patch(
-                "subdomainenum.tools.dnsrecon.resolve_ns",
-                return_value=["ns1.example.com"],
-            ) as mock_ns,
-            patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock_tool,
-        ):
-            run_dnsrecon("example.com", mode=EnumMode.ACTIVE, wordlist="/tmp/words.txt")
-            cmd = mock_tool.call_args[0][0]
-        mock_ns.assert_not_called()
         assert "-n" not in cmd
 
 
@@ -1030,7 +831,7 @@ class TestDnsreconFqdnCb:
             ]),
         ):
             result = run_dnsrecon(
-                "example.com", mode=EnumMode.PASSIVE, fqdn_cb=seen.append,
+                "example.com", fqdn_cb=seen.append,
             )
         assert "mail.example.com" in seen
         assert "cdn.example.com" in seen

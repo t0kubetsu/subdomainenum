@@ -36,14 +36,13 @@ from subdomainenum.models import (
 _FFUF_MAX_WORKERS = 8
 
 
-def _run_passive(
+def _run_passive_enum(
     domain: str,
     progress_cb: Callable[[str], None] | None,
     debug_cb: Callable[[str, str], None] | None = None,
     cmd_cb: Callable[[str, str], None] | None = None,
     finish_cb: Callable[[str, str | None, bool], None] | None = None,
     overall_mode: EnumMode | None = None,
-    wordlist: str | None = None,
     fqdn_cb: Callable[[str], None] | None = None,
 ) -> list[ToolResult]:
     """Run all passive enumeration tools concurrently.
@@ -59,9 +58,6 @@ def _run_passive(
     :param overall_mode: The mode passed to :func:`assess`; when ``EnumMode.ALL``
         tools that also run in the active phase use a ``"<name> passive"`` key so
         the debug log shows a distinct section for each phase.
-    :param wordlist: Optional DNS wordlist. When provided, dnsrecon's passive
-        invocation adds the ``snoop`` type to cache-snoop the domain's NS for
-        each wordlist entry. Ignored by every other passive source.
     :returns: List of :class:`~subdomainenum.models.ToolResult` objects.
     """
 
@@ -75,7 +71,7 @@ def _run_passive(
             if name == "amass":
                 return "amass passive"
             if name == "dnsrecon":
-                return "dnsrecon passive+active"
+                return "dnsrecon passive"
         return name
 
     def _line_cb(tool: str) -> Callable[[str], None] | None:
@@ -95,36 +91,45 @@ def _run_passive(
     def _run_subfinder() -> ToolResult:
         _cb("Running subfinder (passive)…")
         return run_subfinder(
-            domain, line_cb=_line_cb("subfinder"), cmd_cb=_cmd_cb("subfinder"),
+            domain,
+            line_cb=_line_cb("subfinder"),
+            cmd_cb=_cmd_cb("subfinder"),
             fqdn_cb=fqdn_cb,
         )
 
     def _run_amass() -> ToolResult:
         _cb("Running amass (passive)…")
         return run_amass(
-            domain, line_cb=_line_cb("amass"), cmd_cb=_cmd_cb("amass"),
+            domain,
+            line_cb=_line_cb("amass"),
+            cmd_cb=_cmd_cb("amass"),
             fqdn_cb=fqdn_cb,
         )
 
     def _run_findomain() -> ToolResult:
         _cb("Running findomain…")
         return run_findomain(
-            domain, line_cb=_line_cb("findomain"), cmd_cb=_cmd_cb("findomain"),
+            domain,
+            line_cb=_line_cb("findomain"),
+            cmd_cb=_cmd_cb("findomain"),
             fqdn_cb=fqdn_cb,
         )
 
     def _run_assetfinder() -> ToolResult:
         _cb("Running assetfinder…")
         return run_assetfinder(
-            domain, line_cb=_line_cb("assetfinder"), cmd_cb=_cmd_cb("assetfinder"),
+            domain,
+            line_cb=_line_cb("assetfinder"),
+            cmd_cb=_cmd_cb("assetfinder"),
             fqdn_cb=fqdn_cb,
         )
 
-    def _run_dnsrecon_passive() -> ToolResult:
+    def _run_dnsrecon() -> ToolResult:
         _cb("Running dnsrecon (passive)…")
         return run_dnsrecon(
-            domain, mode=EnumMode.PASSIVE, wordlist=wordlist,
-            line_cb=_line_cb("dnsrecon"), cmd_cb=_cmd_cb("dnsrecon"),
+            domain,
+            line_cb=_line_cb("dnsrecon"),
+            cmd_cb=_cmd_cb("dnsrecon"),
             fqdn_cb=fqdn_cb,
         )
 
@@ -133,7 +138,7 @@ def _run_passive(
         "amass": _run_amass,
         "findomain": _run_findomain,
         "assetfinder": _run_assetfinder,
-        "dnsrecon": _run_dnsrecon_passive,
+        "dnsrecon": _run_dnsrecon,
     }
     with ThreadPoolExecutor(max_workers=len(tool_tasks)) as pool:
         futures = {pool.submit(fn): name for name, fn in tool_tasks.items()}
@@ -146,7 +151,14 @@ def _run_passive(
                 if finish_cb:
                     finish_cb(_key(tool_name), result.error, result.timed_out)
             except Exception as exc:
-                tools.append(ToolResult(name=tool_name, error=str(exc), available=False, mode=EnumMode.PASSIVE))
+                tools.append(
+                    ToolResult(
+                        name=tool_name,
+                        error=str(exc),
+                        available=False,
+                        mode=EnumMode.PASSIVE,
+                    )
+                )
                 if finish_cb:
                     finish_cb(_key(tool_name), str(exc), False)
 
@@ -166,20 +178,11 @@ def _run_active_enum(
 ) -> list[ToolResult]:
     """Run the non-ffuf active tools in parallel.
 
-    Tool mix depends on *overall_mode*:
-
-    - In ``ALL`` mode the pool is **amass + gobuster**. dnsrecon is omitted
-      because it already runs in the passive phase with ``-t std,srv,snoop``;
-      re-running it actively would duplicate work without producing new data
-      (its ``brt`` type has been replaced by ``gobuster dns``).
-    - In ``ACTIVE`` mode (or when *overall_mode* is ``None``) the pool is
-      **amass + gobuster + dnsrecon**. dnsrecon runs with ``-t std,srv -a -z``
-      so AXFR zone transfer and DNSSEC zone-walk enumeration are still
-      exercised in the active-only path where the passive pool never runs.
+    The pool is always **amass + gobuster**.
+    Brute-force enumeration is covered by gobuster dns.
 
     :param domain: Target base domain.
-    :param wordlist: Path to the DNS wordlist (consumed by gobuster;
-        dnsrecon silently ignores it in ACTIVE mode).
+    :param wordlist: Path to the DNS wordlist; consumed by gobuster dns.
     :param progress_cb: Optional callback for progress messages.
     :param debug_cb: Optional callback for real-time tool output lines,
         called as ``debug_cb(tool_name, line)``.
@@ -219,24 +222,20 @@ def _run_active_enum(
     def _run_amass_active() -> ToolResult:
         _cb("Running amass (active)…")
         return run_amass(
-            domain, mode=EnumMode.ACTIVE,
-            line_cb=_line_cb("amass"), cmd_cb=_cmd_cb("amass"),
+            domain,
+            mode=EnumMode.ACTIVE,
+            line_cb=_line_cb("amass"),
+            cmd_cb=_cmd_cb("amass"),
             fqdn_cb=fqdn_cb,
         )
 
     def _run_gobuster() -> ToolResult:
         _cb("Running gobuster dns…")
         return run_gobuster_dns(
-            domain, wordlist=wordlist,
-            line_cb=_line_cb("gobuster"), cmd_cb=_cmd_cb("gobuster"),
-            fqdn_cb=fqdn_cb,
-        )
-
-    def _run_dnsrecon_active() -> ToolResult:
-        _cb("Running dnsrecon (active)…")
-        return run_dnsrecon(
-            domain, mode=EnumMode.ACTIVE,
-            line_cb=_line_cb("dnsrecon"), cmd_cb=_cmd_cb("dnsrecon"),
+            domain,
+            wordlist=wordlist,
+            line_cb=_line_cb("gobuster"),
+            cmd_cb=_cmd_cb("gobuster"),
             fqdn_cb=fqdn_cb,
         )
 
@@ -244,12 +243,6 @@ def _run_active_enum(
         "amass": _run_amass_active,
         "gobuster": _run_gobuster,
     }
-    # Only add dnsrecon to the active pool when ALL mode is NOT in effect.
-    # In ALL mode dnsrecon already runs passively; in ACTIVE-only mode the
-    # passive pool is skipped, so we need it here for -a (AXFR) and -z
-    # (DNSSEC zone walk) coverage.
-    if overall_mode != EnumMode.ALL:
-        tool_tasks["dnsrecon"] = _run_dnsrecon_active
     with ThreadPoolExecutor(max_workers=len(tool_tasks)) as pool:
         futures = {pool.submit(fn): name for name, fn in tool_tasks.items()}
         for fut in as_completed(futures):
@@ -261,7 +254,14 @@ def _run_active_enum(
                 if finish_cb:
                     finish_cb(_key(tool_name), result.error, result.timed_out)
             except Exception as exc:
-                tools.append(ToolResult(name=tool_name, error=str(exc), available=False, mode=EnumMode.ACTIVE))
+                tools.append(
+                    ToolResult(
+                        name=tool_name,
+                        error=str(exc),
+                        available=False,
+                        mode=EnumMode.ACTIVE,
+                    )
+                )
                 if finish_cb:
                     finish_cb(_key(tool_name), str(exc), False)
 
@@ -295,23 +295,36 @@ def _run_ffuf_fanout(
     """
 
     if not urls:
-        tool = ToolResult(name="ffuf", available=False, error="no URL resolved", mode=EnumMode.ACTIVE)
+        tool = ToolResult(
+            name="ffuf", available=False, error="no URL resolved", mode=EnumMode.ACTIVE
+        )
         if finish_cb:
             finish_cb("ffuf", "no URL resolved", False)
         return tool, []
 
     if progress_cb:
-        progress_cb(f"Running ffuf (vhost fuzzing) against {len(urls)} IP(s) in parallel…")
+        progress_cb(
+            f"Running ffuf (vhost fuzzing) against {len(urls)} IP(s) in parallel…"
+        )
 
-    def _make_task(idx: int, target_url: str) -> tuple[str, Callable[[], list[VhostResult]]]:
+    def _make_task(
+        idx: int, target_url: str
+    ) -> tuple[str, Callable[[], list[VhostResult]]]:
         ffuf_key = f"ffuf {idx + 1}" if len(urls) > 1 else "ffuf"
-        _line = (lambda line, k=ffuf_key: debug_cb(k, line)) if debug_cb is not None else None
+        _line = (
+            (lambda line, k=ffuf_key: debug_cb(k, line))
+            if debug_cb is not None
+            else None
+        )
         _cmd = (lambda c, k=ffuf_key: cmd_cb(k, c)) if cmd_cb is not None else None
 
         def _run() -> list[VhostResult]:
             return run_ffuf(
-                domain, url=target_url, wordlist=wordlist,
-                line_cb=_line, cmd_cb=_cmd,
+                domain,
+                url=target_url,
+                wordlist=wordlist,
+                line_cb=_line,
+                cmd_cb=_cmd,
             )
 
         return ffuf_key, _run
@@ -368,15 +381,23 @@ def _run_active(
     :returns: Tuple of (tools, vhosts).
     """
     tools = _run_active_enum(
-        domain, wordlist=wordlist,
-        progress_cb=progress_cb, debug_cb=debug_cb,
-        cmd_cb=cmd_cb, finish_cb=finish_cb, overall_mode=overall_mode,
+        domain,
+        wordlist=wordlist,
+        progress_cb=progress_cb,
+        debug_cb=debug_cb,
+        cmd_cb=cmd_cb,
+        finish_cb=finish_cb,
+        overall_mode=overall_mode,
         fqdn_cb=fqdn_cb,
     )
     ffuf_tool, vhosts = _run_ffuf_fanout(
-        domain, wordlist=wordlist, urls=urls,
-        progress_cb=progress_cb, debug_cb=debug_cb,
-        cmd_cb=cmd_cb, finish_cb=finish_cb,
+        domain,
+        wordlist=wordlist,
+        urls=urls,
+        progress_cb=progress_cb,
+        debug_cb=debug_cb,
+        cmd_cb=cmd_cb,
+        finish_cb=finish_cb,
     )
     tools.append(ffuf_tool)
     return tools, vhosts
@@ -508,15 +529,11 @@ def assess(
     In ``ALL`` mode, the 5 passive tools and the 2 non-ffuf active tools
     (amass + gobuster) run concurrently in two pools submitted to an outer
     executor; ffuf runs after both pools drain so it can target IPs resolved
-    from passive FQDNs. dnsrecon runs only in the passive phase in ALL mode;
-    in ACTIVE-only mode it joins the active pool so AXFR and DNSSEC zone-walk
-    enumeration are still executed when passive tools are skipped.
+    from passive FQDNs.
 
     :param domain: Target base domain (e.g. ``"example.com"``).
     :param mode: Enumeration strategy – ``passive``, ``active``, or ``all``.
-    :param wordlist: Path to wordlist. Required for active/all modes; optional
-        for passive mode, where it unlocks dnsrecon's ``snoop`` cache-snoop of
-        the domain's authoritative NS.
+    :param wordlist: Path to wordlist. Required for active/all modes.
     :param url: Target URL for ffuf vhost fuzzing (optional).
     :param timeout: DNS resolution timeout per query in seconds.
     :param progress_cb: Optional callback called with progress strings.
@@ -547,21 +564,35 @@ def assess(
     try:
         if mode == EnumMode.PASSIVE:
             _cb("Starting passive enumeration…")
-            all_tools.extend(_run_passive(
-                domain, progress_cb,
-                debug_cb=debug_cb, cmd_cb=cmd_cb, finish_cb=finish_cb, overall_mode=mode,
-                wordlist=wordlist, fqdn_cb=resolver.submit,
-            ))
+            all_tools.extend(
+                _run_passive_enum(
+                    domain,
+                    progress_cb,
+                    debug_cb=debug_cb,
+                    cmd_cb=cmd_cb,
+                    finish_cb=finish_cb,
+                    overall_mode=mode,
+                    fqdn_cb=resolver.submit,
+                )
+            )
 
         elif mode == EnumMode.ACTIVE:
             _cb("Starting active enumeration…")
             urls, pre_resolved = _compute_ffuf_urls(
-                domain, url, passive_fqdns=[], resolver=resolver,
+                domain,
+                url,
+                passive_fqdns=[],
+                resolver=resolver,
             )
             active_tools, vhosts = _run_active(
-                domain, wordlist=wordlist, urls=urls,
-                progress_cb=progress_cb, debug_cb=debug_cb,
-                cmd_cb=cmd_cb, finish_cb=finish_cb, overall_mode=mode,
+                domain,
+                wordlist=wordlist,
+                urls=urls,
+                progress_cb=progress_cb,
+                debug_cb=debug_cb,
+                cmd_cb=cmd_cb,
+                finish_cb=finish_cb,
+                overall_mode=mode,
                 fqdn_cb=resolver.submit,
             )
             all_tools.extend(active_tools)
@@ -571,14 +602,24 @@ def assess(
             _cb("Starting enumeration (passive + active concurrent)…")
             with ThreadPoolExecutor(max_workers=2) as outer:
                 f_passive = outer.submit(
-                    _run_passive, domain, progress_cb,
-                    debug_cb=debug_cb, cmd_cb=cmd_cb, finish_cb=finish_cb, overall_mode=mode,
-                    wordlist=wordlist, fqdn_cb=resolver.submit,
+                    _run_passive_enum,
+                    domain,
+                    progress_cb,
+                    debug_cb=debug_cb,
+                    cmd_cb=cmd_cb,
+                    finish_cb=finish_cb,
+                    overall_mode=mode,
+                    fqdn_cb=resolver.submit,
                 )
                 f_active_enum = outer.submit(
-                    _run_active_enum, domain,
-                    wordlist=wordlist, progress_cb=progress_cb,
-                    debug_cb=debug_cb, cmd_cb=cmd_cb, finish_cb=finish_cb, overall_mode=mode,
+                    _run_active_enum,
+                    domain,
+                    wordlist=wordlist,
+                    progress_cb=progress_cb,
+                    debug_cb=debug_cb,
+                    cmd_cb=cmd_cb,
+                    finish_cb=finish_cb,
+                    overall_mode=mode,
                     fqdn_cb=resolver.submit,
                 )
                 passive_tools = f_passive.result()
@@ -592,12 +633,19 @@ def assess(
             # base domain and passive FQDNs are not resolved twice.
             passive_fqdns = [sub for tool in passive_tools for sub in tool.subdomains]
             urls, pre_resolved = _compute_ffuf_urls(
-                domain, url, passive_fqdns=passive_fqdns, resolver=resolver,
+                domain,
+                url,
+                passive_fqdns=passive_fqdns,
+                resolver=resolver,
             )
             ffuf_tool, vhosts = _run_ffuf_fanout(
-                domain, wordlist=wordlist, urls=urls,
-                progress_cb=progress_cb, debug_cb=debug_cb,
-                cmd_cb=cmd_cb, finish_cb=finish_cb,
+                domain,
+                wordlist=wordlist,
+                urls=urls,
+                progress_cb=progress_cb,
+                debug_cb=debug_cb,
+                cmd_cb=cmd_cb,
+                finish_cb=finish_cb,
             )
             all_tools.append(ffuf_tool)
             all_vhosts.extend(vhosts)
@@ -623,7 +671,10 @@ def assess(
         merged_cache.update(pre_resolved)
 
         subdomains = _resolve_all(
-            unique_fqdns, fqdn_tools, timeout=timeout, pre_resolved=merged_cache,
+            unique_fqdns,
+            fqdn_tools,
+            timeout=timeout,
+            pre_resolved=merged_cache,
         )
     finally:
         resolver.shutdown()

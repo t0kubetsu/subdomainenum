@@ -13,7 +13,7 @@ $ subdomainenum check example.com
 ```
 
 ![Python](https://img.shields.io/badge/python-%3E%3D3.11-blue)
-![Tests](https://img.shields.io/badge/tests-383%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-361%20passing-brightgreen)
 ![Coverage](https://img.shields.io/badge/coverage-99%25-brightgreen)
 ![License](https://img.shields.io/badge/license-GPLv3-lightgrey)
 
@@ -42,19 +42,16 @@ $ subdomainenum check example.com
 | **amass**          | Passive | Runs `amass enum -d domain`; parses v4 graph-format output to extract FQDNs         |
 | **findomain**      | Passive | Runs `findomain --target domain --quiet`                                             |
 | **assetfinder**    | Passive | Runs `assetfinder --subs-only domain`                                                |
-| **dnsrecon**       | Passive + Active | Passive: `std,srv` with Bing/Yandex/crt.sh (`-b -y -k`) and SPF reverse (`-s`); adds `snoop` (NS cache-snoop) when `--wordlist` is supplied; adds `--shodan --shodan-active` when `SHODAN_API_KEY` is in the environment. Active: `std,srv` with AXFR and DNSSEC zone walk (`-a -z`); brute-force is delegated to `gobuster dns` so dnsrecon no longer emits `brt`. |
+| **dnsrecon**       | Passive | Runs `std,srv` with Bing/Yandex/crt.sh (`-b -y -k`), SPF reverse (`-s`), AXFR zone transfer (`-a`), and DNSSEC zone walk (`-z`). AXFR and zone walk target the domain's authoritative nameservers (public DNS infrastructure), not the target application — so they are classified as passive. Adds `--shodan --shodan-active` when `SHODAN_API_KEY` is in the environment. |
 | **gobuster dns**   | Active  | Brute-forces DNS with a wordlist (`gobuster dns --domain domain -w wordlist`)        |
 | **ffuf**           | Active  | Fuzzes virtual hosts via the `Host` header against a target URL                      |
 | **DNS resolution** | —       | All discovered FQDNs are resolved (A + AAAA in parallel per FQDN) — `A`/`AAAA` queries fan out on a shared 256-worker pool, final batch resolves in up to 100 parallel workers. A `StreamingResolver` overlaps DNS with enumeration: each tool pushes FQDNs into the resolver as soon as it parses them, so by the time enumeration finishes most lookups are already complete. |
 
 Passive and active sources can be run independently or combined (`--mode all`).
-In `--mode all`, the passive pool (5 workers) and the non-ffuf active pool
-(2 workers: amass, gobuster) run concurrently — dnsrecon already runs in the
-passive pool, so re-running it actively would duplicate work. In `--mode
-active` (no passive) the active pool grows to 3 workers (amass, gobuster,
-dnsrecon) so AXFR and DNSSEC zone walk are still executed. `ffuf` then fans
-out one worker per resolved target IP (capped at 8). IPs looked up while
-building `ffuf` URLs are cached so no FQDN is DNS-resolved twice.
+In `--mode all`, the passive pool (5 workers) and the active pool
+(2 workers: amass, gobuster) run concurrently. `ffuf` then fans out one
+worker per resolved target IP (capped at 8). IPs looked up while building
+`ffuf` URLs are cached so no FQDN is DNS-resolved twice.
 
 ---
 
@@ -310,8 +307,8 @@ subdomainenum/
 │       │                      active no longer uses -brute -w — see gobuster)
 │       ├── findomain.py     findomain wrapper
 │       ├── assetfinder.py   assetfinder wrapper
-│       ├── dnsrecon.py      dnsrecon passive (std,srv,snoop) and active
-│       │                      (std,srv + AXFR + DNSSEC zone walk) wrapper
+│       ├── dnsrecon.py      dnsrecon wrapper (std,srv + Bing/Yandex/crt.sh/SPF
+│       │                      + AXFR + DNSSEC zone walk; always passive)
 │       ├── gobuster_dns.py  gobuster dns wrapper (sole DNS brute-forcer)
 │       └── ffuf.py          ffuf vhost fuzzing wrapper
 ├── tests/
@@ -354,7 +351,7 @@ pytest tests/test_assessor.py -v
 pytest tests/test_cli.py::TestCheckCommand -v
 ```
 
-The test suite has **383 tests** and achieves **99% coverage** across all modules.
+The test suite has **361 tests** and achieves **99% coverage** across all modules.
 
 All DNS I/O (`dns.resolver.Resolver.resolve`), TLS
 sockets, and subprocess calls are mocked at the boundary — no test touches a real

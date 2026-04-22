@@ -8,9 +8,9 @@ import pytest
 
 from subdomainenum.assessor import (
     assess,
-    _run_passive,
-    _run_active,
+    _run_passive_enum,
     _run_active_enum,
+    _run_active,
     _run_ffuf_fanout,
     _resolve_all,
 )
@@ -24,7 +24,7 @@ def _make_source(*fqdns: str, name: str = "subfinder", available: bool = True) -
 class TestAssess:
     def test_returns_enum_report(self) -> None:
         with (
-            patch("subdomainenum.assessor._run_passive", return_value=[_make_source("sub.example.com")]),
+            patch("subdomainenum.assessor._run_passive_enum", return_value=[_make_source("sub.example.com")]),
             patch("subdomainenum.assessor._resolve_all", return_value=[
                 SubdomainResult(fqdn="sub.example.com", status=Status.ALIVE, alive=True),
             ]),
@@ -35,7 +35,7 @@ class TestAssess:
 
     def test_passive_mode_skips_active_tools(self) -> None:
         with (
-            patch("subdomainenum.assessor._run_passive", return_value=[]) as mock_passive,
+            patch("subdomainenum.assessor._run_passive_enum", return_value=[]) as mock_passive,
             patch("subdomainenum.assessor._run_active", return_value=([], [])) as mock_active,
             patch("subdomainenum.assessor._resolve_all", return_value=[]),
         ):
@@ -45,7 +45,7 @@ class TestAssess:
 
     def test_active_mode_skips_passive_sources(self) -> None:
         with (
-            patch("subdomainenum.assessor._run_passive", return_value=[]) as mock_passive,
+            patch("subdomainenum.assessor._run_passive_enum", return_value=[]) as mock_passive,
             patch("subdomainenum.assessor._run_active", return_value=([], [])) as mock_active,
             patch("subdomainenum.assessor._resolve_all", return_value=[]),
             patch("subdomainenum.assessor.resolve_ips", return_value=[]),
@@ -59,7 +59,7 @@ class TestAssess:
         (directly from assess, fused in a single outer executor).
         """
         with (
-            patch("subdomainenum.assessor._run_passive", return_value=[]) as mock_passive,
+            patch("subdomainenum.assessor._run_passive_enum", return_value=[]) as mock_passive,
             patch("subdomainenum.assessor._run_active_enum", return_value=[]) as mock_active_enum,
             patch(
                 "subdomainenum.assessor._run_ffuf_fanout",
@@ -75,7 +75,7 @@ class TestAssess:
     def test_auto_derives_url_from_resolved_ip(self) -> None:
         """When url is None and domain resolves, ffuf URLs are derived from all IPs."""
         with (
-            patch("subdomainenum.assessor._run_passive", return_value=[]),
+            patch("subdomainenum.assessor._run_passive_enum", return_value=[]),
             patch("subdomainenum.assessor._run_active", return_value=([], [])) as mock_active,
             patch("subdomainenum.assessor._resolve_all", return_value=[]),
             patch("subdomainenum.assessor.resolve_ips", return_value=["1.2.3.4"]),
@@ -87,7 +87,7 @@ class TestAssess:
     def test_skips_ffuf_when_domain_does_not_resolve(self) -> None:
         """When url is None and domain resolves to no IPs, urls is empty."""
         with (
-            patch("subdomainenum.assessor._run_passive", return_value=[]),
+            patch("subdomainenum.assessor._run_passive_enum", return_value=[]),
             patch("subdomainenum.assessor._run_active", return_value=([], [])) as mock_active,
             patch("subdomainenum.assessor._resolve_all", return_value=[]),
             patch("subdomainenum.assessor.resolve_ips", return_value=[]),
@@ -99,7 +99,7 @@ class TestAssess:
     def test_explicit_url_not_overridden(self) -> None:
         """When url is explicitly provided, resolve_ips is not called."""
         with (
-            patch("subdomainenum.assessor._run_passive", return_value=[]),
+            patch("subdomainenum.assessor._run_passive_enum", return_value=[]),
             patch("subdomainenum.assessor._run_active", return_value=([], [])) as mock_active,
             patch("subdomainenum.assessor._resolve_all", return_value=[]),
             patch("subdomainenum.assessor.resolve_ips") as mock_resolve,
@@ -112,7 +112,7 @@ class TestAssess:
     def test_progress_cb_called(self) -> None:
         calls: list[str] = []
         with (
-            patch("subdomainenum.assessor._run_passive", return_value=[]),
+            patch("subdomainenum.assessor._run_passive_enum", return_value=[]),
             patch("subdomainenum.assessor._resolve_all", return_value=[]),
         ):
             assess("example.com", mode=EnumMode.PASSIVE, progress_cb=calls.append)
@@ -124,7 +124,7 @@ class TestAssess:
             _make_source("sub.example.com", name="subfinder"),
         ]
         with (
-            patch("subdomainenum.assessor._run_passive", return_value=sources),
+            patch("subdomainenum.assessor._run_passive_enum", return_value=sources),
             patch("subdomainenum.assessor._resolve_all") as mock_resolve,
         ):
             mock_resolve.return_value = [
@@ -136,7 +136,7 @@ class TestAssess:
     def test_report_contains_sources(self) -> None:
         sources = [_make_source("sub.example.com", name="subfinder")]
         with (
-            patch("subdomainenum.assessor._run_passive", return_value=sources),
+            patch("subdomainenum.assessor._run_passive_enum", return_value=sources),
             patch("subdomainenum.assessor._resolve_all", return_value=[]),
         ):
             report = assess("example.com", mode=EnumMode.PASSIVE)
@@ -150,7 +150,7 @@ class TestAssess:
         """In ALL mode, IPs from passive subdomains are added to the ffuf URL list."""
         passive_src = _make_source("sub.example.com", name="subfinder")
         with (
-            patch("subdomainenum.assessor._run_passive", return_value=[passive_src]),
+            patch("subdomainenum.assessor._run_passive_enum", return_value=[passive_src]),
             patch("subdomainenum.assessor._run_active_enum", return_value=[]),
             patch(
                 "subdomainenum.assessor._run_ffuf_fanout",
@@ -181,7 +181,7 @@ class TestAssess:
     def test_ipv6_addresses_bracketed_in_urls(self) -> None:
         """IPv6 addresses in the URL list are wrapped in brackets."""
         with (
-            patch("subdomainenum.assessor._run_passive", return_value=[]),
+            patch("subdomainenum.assessor._run_passive_enum", return_value=[]),
             patch("subdomainenum.assessor._run_active", return_value=([], [])) as mock_active,
             patch("subdomainenum.assessor._resolve_all", return_value=[]),
             patch("subdomainenum.assessor.resolve_ips", return_value=["2606:2800::1"]),
@@ -194,7 +194,7 @@ class TestAssess:
         """The same IP from multiple passive subdomains appears only once in urls."""
         passive_src = _make_source("a.example.com", "b.example.com", name="subfinder")
         with (
-            patch("subdomainenum.assessor._run_passive", return_value=[passive_src]),
+            patch("subdomainenum.assessor._run_passive_enum", return_value=[passive_src]),
             patch("subdomainenum.assessor._run_active_enum", return_value=[]),
             patch(
                 "subdomainenum.assessor._run_ffuf_fanout",
@@ -214,7 +214,6 @@ class TestAssess:
         src = _make_source()
         with (
             patch("subdomainenum.assessor.run_amass", return_value=src),
-            patch("subdomainenum.assessor.run_dnsrecon", return_value=src),
             patch("subdomainenum.assessor.run_gobuster_dns", return_value=src),
             patch("subdomainenum.assessor.run_ffuf", return_value=[hit]),
         ):
@@ -230,7 +229,7 @@ class TestAssess:
 
 
 # ---------------------------------------------------------------------------
-# _run_passive
+# _run_passive_enum
 # ---------------------------------------------------------------------------
 
 
@@ -244,7 +243,7 @@ class TestRunPassive:
             patch("subdomainenum.assessor.run_assetfinder", return_value=src),
             patch("subdomainenum.assessor.run_dnsrecon", return_value=src),
         ):
-            results = _run_passive("example.com", progress_cb=None)
+            results = _run_passive_enum("example.com", progress_cb=None)
         assert len(results) == 5
 
     def test_progress_cb_called(self) -> None:
@@ -257,7 +256,7 @@ class TestRunPassive:
             patch("subdomainenum.assessor.run_assetfinder", return_value=src),
             patch("subdomainenum.assessor.run_dnsrecon", return_value=src),
         ):
-            _run_passive("example.com", progress_cb=calls.append)
+            _run_passive_enum("example.com", progress_cb=calls.append)
         assert len(calls) > 0
 
     def test_debug_cb_lambda_invoked(self) -> None:
@@ -277,7 +276,7 @@ class TestRunPassive:
             patch("subdomainenum.assessor.run_assetfinder", return_value=src),
             patch("subdomainenum.assessor.run_dnsrecon", return_value=src),
         ):
-            _run_passive(
+            _run_passive_enum(
                 "example.com",
                 progress_cb=None,
                 debug_cb=lambda s, line: debug_calls.append((s, line)),
@@ -301,7 +300,7 @@ class TestRunPassive:
             patch("subdomainenum.assessor.run_assetfinder", return_value=src),
             patch("subdomainenum.assessor.run_dnsrecon", return_value=src),
         ):
-            _run_passive(
+            _run_passive_enum(
                 "example.com",
                 progress_cb=None,
                 cmd_cb=lambda s, c: cmd_calls.append((s, c)),
@@ -318,7 +317,7 @@ class TestRunPassive:
             patch("subdomainenum.assessor.run_assetfinder", return_value=src),
             patch("subdomainenum.assessor.run_dnsrecon", return_value=src),
         ):
-            results = _run_passive("example.com", progress_cb=None)
+            results = _run_passive_enum("example.com", progress_cb=None)
         error_sources = [r for r in results if r.available is False]
         assert len(error_sources) == 1
         assert "boom" in error_sources[0].error
@@ -334,7 +333,7 @@ class TestRunPassive:
             patch("subdomainenum.assessor.run_assetfinder", return_value=src),
             patch("subdomainenum.assessor.run_dnsrecon", return_value=src),
         ):
-            _run_passive(
+            _run_passive_enum(
                 "example.com",
                 progress_cb=None,
                 finish_cb=lambda name, err, timed_out: finish_calls.append((name, err, timed_out)),
@@ -353,7 +352,7 @@ class TestRunPassive:
             patch("subdomainenum.assessor.run_assetfinder", return_value=src),
             patch("subdomainenum.assessor.run_dnsrecon", return_value=src),
         ):
-            _run_passive(
+            _run_passive_enum(
                 "example.com",
                 progress_cb=None,
                 finish_cb=lambda name, err, timed_out: finish_calls.append((name, err, timed_out)),
@@ -363,7 +362,7 @@ class TestRunPassive:
         assert "network error" in error_calls[0][1]
 
     def test_passive_sources_have_mode_passive(self) -> None:
-        """All results from _run_passive have mode=EnumMode.PASSIVE stamped on them."""
+        """All results from _run_passive_enum have mode=EnumMode.PASSIVE stamped on them."""
         src = _make_source("sub.example.com")
         with (
             patch("subdomainenum.assessor.run_subfinder", return_value=src),
@@ -372,7 +371,7 @@ class TestRunPassive:
             patch("subdomainenum.assessor.run_assetfinder", return_value=src),
             patch("subdomainenum.assessor.run_dnsrecon", return_value=src),
         ):
-            results = _run_passive("example.com", progress_cb=None)
+            results = _run_passive_enum("example.com", progress_cb=None)
         assert all(r.mode == EnumMode.PASSIVE for r in results)
 
     def test_exception_source_has_mode_passive(self) -> None:
@@ -385,58 +384,31 @@ class TestRunPassive:
             patch("subdomainenum.assessor.run_assetfinder", return_value=src),
             patch("subdomainenum.assessor.run_dnsrecon", return_value=src),
         ):
-            results = _run_passive("example.com", progress_cb=None)
+            results = _run_passive_enum("example.com", progress_cb=None)
         error_results = [r for r in results if r.available is False]
         assert len(error_results) == 1
         assert error_results[0].mode == EnumMode.PASSIVE
 
-    def test_wordlist_forwarded_to_dnsrecon(self) -> None:
-        """When a wordlist is supplied, _run_passive threads it into run_dnsrecon."""
-        src = _make_source()
-        with (
-            patch("subdomainenum.assessor.run_subfinder", return_value=src),
-            patch("subdomainenum.assessor.run_amass", return_value=src),
-            patch("subdomainenum.assessor.run_findomain", return_value=src),
-            patch("subdomainenum.assessor.run_assetfinder", return_value=src),
-            patch("subdomainenum.assessor.run_dnsrecon", return_value=src) as mock_dnsrecon,
-        ):
-            _run_passive("example.com", progress_cb=None, wordlist="/tmp/snoop.txt")
-        assert mock_dnsrecon.call_args.kwargs.get("wordlist") == "/tmp/snoop.txt"
-
-    def test_wordlist_defaults_to_none_for_dnsrecon(self) -> None:
-        """Omitting wordlist means dnsrecon's passive call receives wordlist=None."""
-        src = _make_source()
-        with (
-            patch("subdomainenum.assessor.run_subfinder", return_value=src),
-            patch("subdomainenum.assessor.run_amass", return_value=src),
-            patch("subdomainenum.assessor.run_findomain", return_value=src),
-            patch("subdomainenum.assessor.run_assetfinder", return_value=src),
-            patch("subdomainenum.assessor.run_dnsrecon", return_value=src) as mock_dnsrecon,
-        ):
-            _run_passive("example.com", progress_cb=None)
-        assert mock_dnsrecon.call_args.kwargs.get("wordlist") is None
 
 
 # ---------------------------------------------------------------------------
-# _run_active
+# _run_active_enum
 # ---------------------------------------------------------------------------
 
 
 class TestRunActive:
     def test_returns_sources_without_urls(self) -> None:
-        """With overall_mode unset (ACTIVE-only path), the active pool contains
-        amass + gobuster + dnsrecon (for AXFR / DNSSEC zone walk) plus the ffuf
-        sentinel marked unavailable when no URLs are provided → 4 sources."""
+        """Active pool is amass + gobuster plus the ffuf sentinel marked unavailable
+        when no URLs are provided → 3 sources."""
         src = _make_source()
         with (
             patch("subdomainenum.assessor.run_amass", return_value=src),
             patch("subdomainenum.assessor.run_gobuster_dns", return_value=src),
-            patch("subdomainenum.assessor.run_dnsrecon", return_value=src),
             patch("subdomainenum.assessor.run_ffuf") as mock_ffuf,
         ):
             sources, vhosts = _run_active("example.com", wordlist="/tmp/w.txt", urls=[], progress_cb=None)
         mock_ffuf.assert_not_called()
-        assert len(sources) == 4
+        assert len(sources) == 3
         ffuf_src = next(s for s in sources if s.name == "ffuf")
         assert ffuf_src.available is False
 
@@ -444,7 +416,6 @@ class TestRunActive:
         src = _make_source()
         with (
             patch("subdomainenum.assessor.run_amass", return_value=src),
-            patch("subdomainenum.assessor.run_dnsrecon", return_value=src),
             patch("subdomainenum.assessor.run_gobuster_dns", return_value=src),
             patch("subdomainenum.assessor.run_ffuf", return_value=[]) as mock_ffuf,
         ):
@@ -458,7 +429,6 @@ class TestRunActive:
         src = _make_source()
         with (
             patch("subdomainenum.assessor.run_amass", return_value=src),
-            patch("subdomainenum.assessor.run_dnsrecon", return_value=src),
             patch("subdomainenum.assessor.run_gobuster_dns", return_value=src),
         ):
             _run_active("example.com", wordlist="/tmp/w.txt", urls=[], progress_cb=calls.append)
@@ -511,14 +481,12 @@ class TestRunActive:
         assert any(s == "gobuster" for s, _ in cmd_calls)
 
     def test_finish_cb_called(self) -> None:
-        """finish_cb is called for each active source (amass, gobuster, dnsrecon, ffuf)
-        in ACTIVE-only mode (overall_mode unset)."""
+        """finish_cb is called for each active source (amass, gobuster, ffuf)."""
         finish_calls: list[tuple] = []
         src = _make_source()
         with (
             patch("subdomainenum.assessor.run_amass", return_value=src),
             patch("subdomainenum.assessor.run_gobuster_dns", return_value=src),
-            patch("subdomainenum.assessor.run_dnsrecon", return_value=src),
         ):
             _run_active(
                 "example.com",
@@ -530,7 +498,7 @@ class TestRunActive:
         names = [n for n, _, _ in finish_calls]
         assert "amass" in names
         assert "gobuster" in names
-        assert "dnsrecon" in names
+        assert "dnsrecon" not in names
         assert "ffuf" in names
         ffuf_err = next(err for name, err, _ in finish_calls if name == "ffuf")
         assert ffuf_err is not None  # skipped without urls
@@ -541,7 +509,6 @@ class TestRunActive:
         src = _make_source()
         with (
             patch("subdomainenum.assessor.run_amass", return_value=src),
-            patch("subdomainenum.assessor.run_dnsrecon", return_value=src),
             patch("subdomainenum.assessor.run_gobuster_dns", return_value=src),
             patch("subdomainenum.assessor.run_ffuf", return_value=[]),
         ):
@@ -556,23 +523,21 @@ class TestRunActive:
         assert "ffuf" in names
 
     def test_amass_called_with_active_mode(self) -> None:
-        """run_amass must be invoked with mode=EnumMode.ACTIVE in _run_active."""
+        """run_amass must be invoked with mode=EnumMode.ACTIVE in _run_active_enum."""
         from subdomainenum.models import EnumMode
         src = _make_source()
         with (
             patch("subdomainenum.assessor.run_amass", return_value=src) as mock_amass,
-            patch("subdomainenum.assessor.run_dnsrecon", return_value=src),
             patch("subdomainenum.assessor.run_gobuster_dns", return_value=src),
         ):
             _run_active("example.com", wordlist="/tmp/w.txt", urls=[], progress_cb=None)
         assert mock_amass.call_args.kwargs.get("mode") == EnumMode.ACTIVE
 
     def test_active_sources_have_mode_active(self) -> None:
-        """All ToolResults returned by _run_active have mode=EnumMode.ACTIVE stamped."""
+        """All ToolResults returned by _run_active_enum have mode=EnumMode.ACTIVE stamped."""
         src = _make_source()
         with (
             patch("subdomainenum.assessor.run_amass", return_value=src),
-            patch("subdomainenum.assessor.run_dnsrecon", return_value=src),
             patch("subdomainenum.assessor.run_gobuster_dns", return_value=src),
         ):
             sources, _ = _run_active("example.com", wordlist="/tmp/w.txt", urls=[], progress_cb=None)
@@ -583,7 +548,6 @@ class TestRunActive:
         src = _make_source()
         with (
             patch("subdomainenum.assessor.run_amass", return_value=src),
-            patch("subdomainenum.assessor.run_dnsrecon", return_value=src),
             patch("subdomainenum.assessor.run_gobuster_dns", return_value=src),
             patch("subdomainenum.assessor.run_ffuf", return_value=[]),
         ):
@@ -598,7 +562,6 @@ class TestRunActive:
         src = _make_source()
         with (
             patch("subdomainenum.assessor.run_amass", return_value=src),
-            patch("subdomainenum.assessor.run_dnsrecon", return_value=src),
             patch("subdomainenum.assessor.run_gobuster_dns", return_value=src),
         ):
             sources, _ = _run_active("example.com", wordlist="/tmp/w.txt", urls=[], progress_cb=None)
@@ -644,7 +607,7 @@ class TestPhaseAwareKeys:
     """Verify that in ALL mode, shared tools get '<name> passive'/'<name> active' keys."""
 
     def _passive_finish_names(self, overall_mode: EnumMode | None) -> list[str]:
-        """Run _run_passive and collect the source-name arguments passed to finish_cb."""
+        """Run _run_passive_enum and collect the source-name arguments passed to finish_cb."""
         finish_names: list[str] = []
         src = _make_source("sub.example.com")
         with (
@@ -654,7 +617,7 @@ class TestPhaseAwareKeys:
             patch("subdomainenum.assessor.run_assetfinder", return_value=src),
             patch("subdomainenum.assessor.run_dnsrecon", return_value=src),
         ):
-            _run_passive(
+            _run_passive_enum(
                 "example.com",
                 progress_cb=None,
                 finish_cb=lambda name, err, timed_out: finish_names.append(name),
@@ -663,12 +626,11 @@ class TestPhaseAwareKeys:
         return finish_names
 
     def _active_finish_names(self, overall_mode: EnumMode | None) -> list[str]:
-        """Run _run_active and collect the source-name arguments passed to finish_cb."""
+        """Run _run_active_enum and collect the source-name arguments passed to finish_cb."""
         finish_names: list[str] = []
         src = _make_source("sub.example.com")
         with (
             patch("subdomainenum.assessor.run_amass", return_value=src),
-            patch("subdomainenum.assessor.run_dnsrecon", return_value=src),
             patch("subdomainenum.assessor.run_gobuster_dns", return_value=src),
         ):
             _run_active(
@@ -690,8 +652,7 @@ class TestPhaseAwareKeys:
 
     def test_passive_all_mode_dnsrecon_key_is_suffixed(self) -> None:
         names = self._passive_finish_names(EnumMode.ALL)
-        assert "dnsrecon passive+active" in names
-        assert "dnsrecon passive" not in names
+        assert "dnsrecon passive" in names
         assert "dnsrecon" not in names
 
     def test_passive_all_mode_other_tools_keep_plain_keys(self) -> None:
@@ -721,12 +682,12 @@ class TestPhaseAwareKeys:
         assert "amass active" in names
         assert "amass" not in names
 
-    def test_active_all_mode_dnsrecon_absent_from_active_pool(self) -> None:
-        """dnsrecon is delegated to the passive phase; no active key (with or
-        without suffix) should appear in ALL mode's active finish_cb names."""
-        names = self._active_finish_names(EnumMode.ALL)
-        assert "dnsrecon active" not in names
-        assert "dnsrecon" not in names
+    def test_active_dnsrecon_never_in_active_pool(self) -> None:
+        """dnsrecon is passive-only; it must never appear in the active finish_cb names."""
+        for mode in (EnumMode.ALL, EnumMode.ACTIVE, None):
+            names = self._active_finish_names(mode)
+            assert "dnsrecon" not in names
+            assert "dnsrecon active" not in names
 
     def test_active_all_mode_other_tools_keep_plain_keys(self) -> None:
         names = self._active_finish_names(EnumMode.ALL)
@@ -734,22 +695,18 @@ class TestPhaseAwareKeys:
         assert "ffuf" in names
 
     def test_active_active_mode_plain_keys(self) -> None:
-        """In ACTIVE-only mode no suffix is added, and dnsrecon is present
-        (it joins the active pool so AXFR/DNSSEC checks still run)."""
+        """In ACTIVE-only mode no suffix is added; pool is amass + gobuster."""
         names = self._active_finish_names(EnumMode.ACTIVE)
         assert "amass" in names
-        assert "dnsrecon" in names
+        assert "gobuster" in names
         assert "amass active" not in names
-        assert "dnsrecon active" not in names
 
     def test_active_no_overall_mode_plain_keys(self) -> None:
-        """Without overall_mode (None) no suffix is added, and dnsrecon is
-        present in the active pool (same as ACTIVE-only mode)."""
+        """Without overall_mode (None) no suffix is added; pool is amass + gobuster."""
         names = self._active_finish_names(None)
         assert "amass" in names
-        assert "dnsrecon" in names
+        assert "gobuster" in names
         assert "amass active" not in names
-        assert "dnsrecon active" not in names
 
     # --- debug_cb key routing in ALL mode ---
 
@@ -769,7 +726,7 @@ class TestPhaseAwareKeys:
             patch("subdomainenum.assessor.run_assetfinder", return_value=src),
             patch("subdomainenum.assessor.run_dnsrecon", return_value=src),
         ):
-            _run_passive(
+            _run_passive_enum(
                 "example.com",
                 progress_cb=None,
                 debug_cb=lambda s, line: debug_calls.append((s, line)),
@@ -805,7 +762,7 @@ class TestPhaseAwareKeys:
 
     def test_assess_passes_overall_mode_to_passive(self) -> None:
         with (
-            patch("subdomainenum.assessor._run_passive", return_value=[]) as mock_passive,
+            patch("subdomainenum.assessor._run_passive_enum", return_value=[]) as mock_passive,
             patch("subdomainenum.assessor._resolve_all", return_value=[]),
         ):
             assess("example.com", mode=EnumMode.PASSIVE)
@@ -814,7 +771,7 @@ class TestPhaseAwareKeys:
 
     def test_assess_passes_overall_mode_all_to_passive(self) -> None:
         with (
-            patch("subdomainenum.assessor._run_passive", return_value=[]) as mock_passive,
+            patch("subdomainenum.assessor._run_passive_enum", return_value=[]) as mock_passive,
             patch("subdomainenum.assessor._run_active", return_value=([], [])),
             patch("subdomainenum.assessor._resolve_all", return_value=[]),
             patch("subdomainenum.assessor.resolve_ips", return_value=[]),
@@ -828,7 +785,7 @@ class TestPhaseAwareKeys:
         amass/dnsrecon debug keys get the 'active' suffix for phase disambiguation.
         """
         with (
-            patch("subdomainenum.assessor._run_passive", return_value=[]),
+            patch("subdomainenum.assessor._run_passive_enum", return_value=[]),
             patch("subdomainenum.assessor._run_active_enum", return_value=[]) as mock_active_enum,
             patch(
                 "subdomainenum.assessor._run_ffuf_fanout",
@@ -861,10 +818,9 @@ class TestActiveParallelism:
     """The non-ffuf active tools must run concurrently in _run_active_enum."""
 
     def test_active_tools_run_in_parallel(self) -> None:
-        """With overall_mode unset, the pool is amass + gobuster + dnsrecon.
-        All three reach a Barrier(3) together → proves concurrency."""
+        """The active pool is amass + gobuster. Both reach a Barrier(2) together → proves concurrency."""
         import threading
-        barrier = threading.Barrier(3, timeout=2.0)
+        barrier = threading.Barrier(2, timeout=2.0)
 
         def fake_amass(domain, **kwargs):
             barrier.wait()
@@ -874,44 +830,36 @@ class TestActiveParallelism:
             barrier.wait()
             return _make_source(name="gobuster")
 
-        def fake_dnsrecon(domain, **kwargs):
-            barrier.wait()
-            return _make_source(name="dnsrecon")
-
         with (
             patch("subdomainenum.assessor.run_amass", side_effect=fake_amass),
             patch("subdomainenum.assessor.run_gobuster_dns", side_effect=fake_gobuster),
-            patch("subdomainenum.assessor.run_dnsrecon", side_effect=fake_dnsrecon),
         ):
             tools = _run_active_enum("example.com", wordlist="/tmp/w.txt", progress_cb=None)
 
-        # Barrier did not raise BrokenBarrierError → all 3 reached the barrier together.
-        assert len(tools) == 3
+        # Barrier did not raise BrokenBarrierError → both reached the barrier together.
+        assert len(tools) == 2
         names = {t.name for t in tools}
-        assert names == {"amass", "gobuster", "dnsrecon"}
+        assert names == {"amass", "gobuster"}
 
-    def test_all_mode_omits_dnsrecon_from_active_pool(self) -> None:
-        """In ALL mode dnsrecon already runs passively, so _run_active_enum must
-        NOT start a second dnsrecon invocation."""
+    def test_active_dnsrecon_always_absent_from_active_pool(self) -> None:
+        """dnsrecon is never in the active pool (it runs only passively)."""
         with (
             patch("subdomainenum.assessor.run_amass", return_value=_make_source(name="amass")),
             patch("subdomainenum.assessor.run_gobuster_dns", return_value=_make_source(name="gobuster")),
-            patch("subdomainenum.assessor.run_dnsrecon", return_value=_make_source(name="dnsrecon")) as mock_dnsrecon,
         ):
             tools = _run_active_enum(
                 "example.com", wordlist="/tmp/w.txt",
                 progress_cb=None, overall_mode=EnumMode.ALL,
             )
-        mock_dnsrecon.assert_not_called()
         names = {t.name for t in tools}
         assert names == {"amass", "gobuster"}
+        assert "dnsrecon" not in names
 
     def test_active_enum_captures_unexpected_exception(self) -> None:
         """If a tool runner raises, the pool captures it as ToolResult(available=False)."""
         src = _make_source()
         with (
             patch("subdomainenum.assessor.run_amass", side_effect=RuntimeError("boom")),
-            patch("subdomainenum.assessor.run_dnsrecon", return_value=src),
             patch("subdomainenum.assessor.run_gobuster_dns", return_value=src),
         ):
             tools = _run_active_enum("example.com", wordlist="/tmp/w.txt", progress_cb=None)
@@ -926,7 +874,6 @@ class TestActiveParallelism:
         src = _make_source()
         with (
             patch("subdomainenum.assessor.run_amass", side_effect=RuntimeError("boom")),
-            patch("subdomainenum.assessor.run_dnsrecon", return_value=src),
             patch("subdomainenum.assessor.run_gobuster_dns", return_value=src),
         ):
             _run_active_enum(
@@ -1041,7 +988,7 @@ class TestFfufParallelism:
 
 
 class TestAllModePhaseFusion:
-    """In ALL mode, _run_passive and _run_active_enum run concurrently in an outer pool."""
+    """In ALL mode, _run_passive_enum and _run_active_enum run concurrently in an outer pool."""
 
     def test_all_mode_fuses_phases(self) -> None:
         """Passive helpers (5) and active-enum helpers (2) all hit a Barrier(7) → fused.
