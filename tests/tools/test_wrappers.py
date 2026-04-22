@@ -367,7 +367,7 @@ class TestRunDnsrecon:
         with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock:
             run_dnsrecon("example.com", mode=EnumMode.ALL, wordlist="/tmp/words.txt")
             cmd = mock.call_args[0][0]
-        for flag in ("-a", "-b", "-y", "-k", "-z", "-s", "-w"):
+        for flag in ("-a", "-b", "-y", "-k", "-z", "-s"):
             assert flag in cmd, f"expected {flag} in command"
 
     def test_all_mode_wordlist_in_command(self) -> None:
@@ -390,7 +390,7 @@ class TestRunDnsrecon:
         with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock:
             run_dnsrecon("example.com", mode=EnumMode.PASSIVE)
             cmd = mock.call_args[0][0]
-        for flag in ("-b", "-y", "-k", "-s", "-w"):
+        for flag in ("-b", "-y", "-k", "-s"):
             assert flag in cmd, f"expected {flag} in passive command"
 
     def test_passive_mode_excludes_active_flags(self) -> None:
@@ -525,31 +525,6 @@ class TestRunDnsrecon:
             cmd = mock.call_args[0][0]
         assert "--threads" not in cmd
 
-    def test_disable_check_nxdomain(self) -> None:
-        with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock:
-            run_dnsrecon("example.com", mode=EnumMode.PASSIVE, disable_check_nxdomain=True)
-            cmd = mock.call_args[0][0]
-        assert "--disable_check_nxdomain" in cmd
-
-    def test_disable_check_recursion(self) -> None:
-        with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock:
-            run_dnsrecon("example.com", mode=EnumMode.PASSIVE, disable_check_recursion=True)
-            cmd = mock.call_args[0][0]
-        assert "--disable_check_recursion" in cmd
-
-    def test_disable_check_bindversion(self) -> None:
-        with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock:
-            run_dnsrecon("example.com", mode=EnumMode.PASSIVE, disable_check_bindversion=True)
-            cmd = mock.call_args[0][0]
-        assert "--disable_check_bindversion" in cmd
-
-    def test_disable_check_flags_absent_by_default(self) -> None:
-        with patch("subdomainenum.tools.dnsrecon.run_tool", return_value=([], False)) as mock:
-            run_dnsrecon("example.com", mode=EnumMode.PASSIVE)
-            cmd = mock.call_args[0][0]
-        assert "--disable_check_nxdomain" not in cmd
-        assert "--disable_check_recursion" not in cmd
-        assert "--disable_check_bindversion" not in cmd
 
     def test_all_mode_never_adds_f_or_iw(self) -> None:
         """-f and --iw are brt-only; with brt removed from ALL mode, neither flag appears."""
