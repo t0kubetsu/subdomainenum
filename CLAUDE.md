@@ -138,6 +138,11 @@ If the test count changed, update **both** occurrences in `README.md`:
 
 Also update the count in **this file** (`CLAUDE.md`) under "Testing Conventions".
 
+Before pushing, update **CHANGELOG.md**: add your changes under `## [Unreleased]`
+using the standard sections (`### Added`, `### Changed`, `### Fixed`, `### Removed`).
+When bumping the version, move unreleased items to a new `## [x.y.z] — YYYY-MM-DD`
+section and update the comparison links at the bottom of `CHANGELOG.md`.
+
 ## Code Tours
 
 The `.tours/` directory contains CodeTour walkthroughs (VS Code / JetBrains extension). Tours are checked into the repo and should stay accurate.
