@@ -9,6 +9,10 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+---
+
+## [0.14.1] — 2026-05-15
+
 ### Changed
 - `__init__`: version fallback now catches `PackageNotFoundError` explicitly
   instead of bare `Exception`, consistent with all other platform modules.
@@ -71,6 +75,7 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ---
 
-[Unreleased]: https://github.com/NC3-TestingPlatform/subdomainenum/compare/v0.14.0...HEAD
+[Unreleased]: https://github.com/NC3-TestingPlatform/subdomainenum/compare/v0.14.1...HEAD
+[0.14.1]: https://github.com/NC3-TestingPlatform/subdomainenum/compare/v0.14.0...v0.14.1
 [0.14.0]: https://github.com/NC3-TestingPlatform/subdomainenum/compare/v0.1.0...v0.14.0
 [0.1.0]: https://github.com/NC3-TestingPlatform/subdomainenum/releases/tag/v0.1.0
