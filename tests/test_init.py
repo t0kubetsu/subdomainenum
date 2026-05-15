@@ -15,7 +15,7 @@ def test_version_fallback_when_metadata_unavailable() -> None:
     try:
         with patch("importlib.metadata.version", side_effect=PackageNotFoundError("subdomainenum")):
             fresh = importlib.import_module("subdomainenum")
-        assert fresh.__version__ == "0.14.0"
+        assert fresh.__version__ == "0.14.2"
     finally:
         if saved is not None:
             sys.modules["subdomainenum"] = saved

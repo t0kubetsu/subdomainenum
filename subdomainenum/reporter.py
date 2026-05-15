@@ -223,9 +223,6 @@ def print_full_report(report: EnumReport, *, console: Console | None = None) -> 
     con.rule("[dim]End of Report[/dim]")
 
 
-print_report = print_full_report  # deprecated
-
-
 _FORMAT_BY_EXT: dict[str, str] = {
     ".txt": "text",
     ".text": "text",
@@ -244,7 +241,7 @@ def save_report(path: str) -> None:
     * ``.svg``             → SVG image
     * ``.html`` / ``.htm`` → self-contained HTML page
 
-    Must be called **after** :func:`print_report` because Rich only
+    Must be called **after** :func:`print_full_report` because Rich only
     captures output when :class:`~rich.console.Console` is created with
     ``record=True``, which is already set on the module-level
     :data:`console` instance.

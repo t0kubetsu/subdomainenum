@@ -223,7 +223,7 @@ subdomainenum --version
 ```python
 from subdomainenum.assessor import assess
 from subdomainenum.models import EnumMode
-from subdomainenum.reporter import print_report
+from subdomainenum.reporter import print_full_report
 
 report = assess(
     "example.com",
@@ -234,7 +234,7 @@ report = assess(
     progress_cb=print,              # optional: called with status strings
 )
 
-print_report(report)
+print_full_report(report)
 ```
 
 ### Working with results
